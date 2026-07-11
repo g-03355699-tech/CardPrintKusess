@@ -1,0 +1,21 @@
+{
+    "img_x": "40",
+    "img_y": "220",
+    "img_w": "250",
+    "img_h": "310",
+    "qr_x": "725",
+    "qr_y": "255",
+    "qr_size": "240",
+    "n1_x": "380",
+    "n1_y": "455",
+    "n1_font": "55",
+    "n1_font_file": "verdana.ttf",
+    "n1_bold": true,
+    "n1_italic": false,
+    "n2_x": "350",
+    "n2_y": "550",
+    "n2_font": "30",
+    "n2_font_file": "verdana.ttf",
+    "n2_bold": true,
+    "n2_italic": false
+}
