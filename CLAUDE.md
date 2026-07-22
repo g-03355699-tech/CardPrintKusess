@@ -9,19 +9,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 pip install customtkinter pillow qrcode pywin32
 
 # Run the app
-python app.py
+python MyKusessCetak.py
 
-# Build the Windows executable (entry point: app.py, per app.spec)
-pyinstaller app.spec
+# Build the Windows executable (entry point: MyKusessCetak.py, per MyKusessCetak.spec)
+pyinstaller MyKusessCetak.spec
 ```
 
 There are no tests, no linter, and no `requirements.txt` in this repo.
 
 ## Architecture
 
-This is a single-window CustomTkinter desktop app (`app.py`, one `ctk.CTk` subclass named `CardPrinterApp`, Windows-only, uses `pywin32` for GDI printing) that composites a background template + student/teacher photo + QR code + text fields into a 1013×638 PNG "card" image, then either previews it, saves it, or sends it straight to a Windows printer via `win32ui`/`ImageWin`.
+This is a single-window CustomTkinter desktop app (`MyKusessCetak.py`, one `ctk.CTk` subclass named `CardPrinterApp`, Windows-only, uses `pywin32` for GDI printing) that composites a background template + student/teacher photo + QR code + text fields into a 1013×638 PNG "card" image, then either previews it, saves it, or sends it straight to a Windows printer via `win32ui`/`ImageWin`.
 
-> As of v1.00, `app.py` is the single source of truth. Earlier development history had three independently-evolved, duplicate copies of this app (`app.py`, `MyKusessPrint.py`, `MyKusessPrintV2.py`) with inconsistent CSV schemas; they were consolidated into this one file and the other two deleted. Do not recreate that split — if a feature genuinely needs a variant, branch in git rather than forking the file.
+> As of v1.00, this app was consolidated from three independently-evolved, duplicate copies (`app.py`, `MyKusessPrint.py`, `MyKusessPrintV2.py`) with inconsistent CSV schemas into one file, then renamed `app.py` → `MyKusessCetak.py`. `MyKusessCetak.py` is the single source of truth. Do not recreate that split — if a feature genuinely needs a variant, branch in git rather than forking the file.
 
 ### File structure
 

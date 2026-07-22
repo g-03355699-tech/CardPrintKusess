@@ -6,11 +6,11 @@ Aplikasi desktop (Windows, Python + CustomTkinter) untuk menjana dan mencetak ka
 
 - **Pulihkan butang "Pilih Semua" / "Nyahpilih Semua"** pada tab Cetak Pukal — tertinggal semasa penyatuan fail v1.00.
 - **Simbol tanda baris lebih profesional & berwarna**: `✅`/`⬜` menggantikan `☑`/`☐`, dengan latar hijau lembut pada baris yang ditanda supaya senarai mudah dibaca sekali pandang.
-- Fail `.exe` dibina semula (`dist/app.exe`) menggunakan `app.py` v1.01.
+- Fail aplikasi rasmi dinamakan semula: `app.py` → **`MyKusessCetak.py`** (dan `app.spec` → `MyKusessCetak.spec`, `dist/app.exe` → `dist/MyKusessCetak.exe`).
 
 ## v1.00 — Nota Keluaran
 
-Ini keluaran rasmi pertama. Sebelum ini projek mempunyai tiga skrip aplikasi berasingan hasil evolusi pembangunan (`app.py`, `MyKusessPrint.py`, `MyKusessPrintV2.py`) dengan skema CSV yang tidak konsisten antara satu sama lain. Kesemuanya kini **disatukan menjadi satu fail rasmi, `app.py`**, menggunakan skema yang sepadan dengan data export sebenar (`batch`/`email_moe`).
+Ini keluaran rasmi pertama. Sebelum ini projek mempunyai tiga skrip aplikasi berasingan hasil evolusi pembangunan (`app.py`, `MyKusessPrint.py`, `MyKusessPrintV2.py`) dengan skema CSV yang tidak konsisten antara satu sama lain. Kesemuanya kini **disatukan menjadi satu fail rasmi** (dinamakan semula `MyKusessCetak.py` sejak v1.01), menggunakan skema yang sepadan dengan data export sebenar (`batch`/`email_moe`).
 
 Selain penyatuan itu, v1.00 turut membawa:
 - **Reka bentuk semula UI** — bar header berjenama, palet warna profesional konsisten (tema cerah, aksen biru), kad seksyen bernombor, dan panel pratonton yang lebih menonjol — dipermudahkan mengikut gaya perisian reka bentuk kad seperti Badgy Studio.
@@ -27,14 +27,14 @@ Selain penyatuan itu, v1.00 turut membawa:
 
 ## Struktur Fail
 
-- `app.py` — **fail aplikasi rasmi** (satu-satunya, entry point untuk `python app.py` dan build `.exe`).
+- `MyKusessCetak.py` — **fail aplikasi rasmi** (satu-satunya, entry point untuk `python MyKusessCetak.py` dan build `.exe`).
 - `logo.ico` — ikon aplikasi (dipaparkan juga pada bar header).
 - `layout_config.json` — tetapan layout kad tersimpan.
 - `Users_Images/` — folder gambar murid/guru (rujukan oleh lajur `fail_gambar` dalam CSV).
 - `Eksport_APDM_*.csv` — contoh/data export senarai murid.
 - `Panduan_Pengguna_Sistem_Cetakan_Kad_MyKUSESS.pdf` — manual pengguna.
-- `build/`, `dist/` — output PyInstaller.
-- `app.spec` — konfigurasi build PyInstaller (entry point: `app.py`).
+- `build/`, `dist/` — output PyInstaller (`dist/MyKusessCetak.exe`).
+- `MyKusessCetak.spec` — konfigurasi build PyInstaller (entry point: `MyKusessCetak.py`).
 
 ## Keperluan
 
@@ -48,13 +48,13 @@ pip install customtkinter pillow qrcode pywin32
 ## Menjalankan Aplikasi
 
 ```bash
-python app.py
+python MyKusessCetak.py
 ```
 
 ## Membina Fail Executable (.exe)
 
 ```bash
-pyinstaller app.spec
+pyinstaller MyKusessCetak.spec
 ```
 
 Output akan berada dalam folder `dist/`.
