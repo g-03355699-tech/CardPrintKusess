@@ -11,6 +11,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageTk, ImageOps
 import qrcode
 import win32print
 import win32ui
+import win32con
 from PIL import ImageWin
 
 # Tetapan Tema Global Perisian
@@ -554,8 +555,17 @@ class CardPrinterApp(ctk.CTk):
             hdc.StartDoc("Batch Cetak MyKUSESS")
             hdc.StartPage()
             with Image.open(filename) as bmp:
+                src_w, src_h = bmp.size
+                # Kira petak sasaran mengikut kawasan boleh cetak sebenar
+                # pencetak (bukan andaian 1013x638px tetap) supaya nisbah
+                # aspek kad dikekalkan dan tidak diregangkan (stretched).
+                page_w = hdc.GetDeviceCaps(win32con.HORZRES)
+                page_h = hdc.GetDeviceCaps(win32con.VERTRES)
+                scale = min(page_w / src_w, page_h / src_h)
+                dest_w, dest_h = int(src_w * scale), int(src_h * scale)
+                offset_x, offset_y = (page_w - dest_w) // 2, (page_h - dest_h) // 2
                 dib = ImageWin.Dib(bmp)
-                dib.draw(hdc.GetHandleOutput(), (0, 0, 1013, 638))
+                dib.draw(hdc.GetHandleOutput(), (offset_x, offset_y, offset_x + dest_w, offset_y + dest_h))
             hdc.EndPage()
             hdc.EndDoc()
         finally:
