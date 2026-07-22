@@ -253,8 +253,8 @@ class CardPrinterApp(ctk.CTk):
 
         selection_btn_frame = ctk.CTkFrame(pad, fg_color="transparent")
         selection_btn_frame.pack(fill="x", pady=(0, 5))
-        self.btn_secondary(selection_btn_frame, "☑  Pilih Semua", self.select_all_records, width=140, height=32).pack(side="left", padx=(0, 8))
-        self.btn_danger(selection_btn_frame, "☐  Nyahpilih Semua", self.deselect_all_records, width=140).pack(side="left")
+        self.btn_secondary(selection_btn_frame, "✅  Pilih Semua", self.select_all_records, width=140, height=32).pack(side="left", padx=(0, 8))
+        self.btn_danger(selection_btn_frame, "⬜  Nyahpilih Semua", self.deselect_all_records, width=140).pack(side="left")
 
         style = ttk.Style()
         style.theme_use("clam")
@@ -263,17 +263,22 @@ class CardPrinterApp(ctk.CTk):
         style.map("Treeview", background=[("selected", COLOR_ACCENT)], foreground=[("selected", "#FFFFFF")])
 
         self.tree = ttk.Treeview(pad, columns=("Pilih", "QR", "Batch", "Penuh", "Email"), show="headings", height=8)
-        self.tree.heading("Pilih", text="[X]")
+        self.tree.heading("Pilih", text="Tanda")
         self.tree.heading("QR", text="Kod QR")
         self.tree.heading("Batch", text="Batch")
         self.tree.heading("Penuh", text="Nama Penuh")
         self.tree.heading("Email", text="Email MOE")
-        self.tree.column("Pilih", width=40, anchor="center")
+        self.tree.column("Pilih", width=60, anchor="center")
         self.tree.column("QR", width=80)
         self.tree.column("Batch", width=90)
         self.tree.column("Penuh", width=200)
         self.tree.column("Email", width=180)
         self.tree.pack(fill="both", expand=True, pady=5)
+
+        # Warna latar baris mengikut status tanda — hijau lembut bila dipilih,
+        # supaya senarai mudah dibaca sekali pandang (bukan sekadar simbol teks).
+        self.tree.tag_configure("row_on", background="#EAFBF1")
+        self.tree.tag_configure("row_off", background=COLOR_SURFACE)
 
         self.tree.bind("<ButtonRelease-1>", self.on_tree_click)
 
@@ -568,8 +573,9 @@ class CardPrinterApp(ctk.CTk):
                 if f_text not in row['nama_penuh'].lower() and f_text not in row['batch'].lower():
                     continue
 
-            pilih_symbol = "☑" if row['pilih'] else "☐"
-            self.tree.insert("", tk.END, values=(pilih_symbol, row['kod_qr'], row['batch'], row['nama_penuh'], row['email_moe']))
+            pilih_symbol = "✅" if row['pilih'] else "⬜"
+            row_tag = "row_on" if row['pilih'] else "row_off"
+            self.tree.insert("", tk.END, values=(pilih_symbol, row['kod_qr'], row['batch'], row['nama_penuh'], row['email_moe']), tags=(row_tag,))
 
     def filter_search(self, event):
         query = self.ent_search.get()
