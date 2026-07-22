@@ -14,7 +14,7 @@ import win32ui
 import win32con
 from PIL import ImageWin
 
-APP_VERSION = "v1.00"
+APP_VERSION = "v1.01"
 
 # ============================================================
 #  TEMA & GAYA — reka bentuk profesional seakan Badgy Studio
