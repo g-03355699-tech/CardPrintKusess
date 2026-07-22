@@ -1,0 +1,10 @@
+# Data peribadi (nama, emel, foto murid/guru) - jangan push ke repo public
+Eksport_APDM_*.csv
+Users_Images/
+temp_print.png
+temp_print_card.png
+temp_batch_print.png
+
+# Python
+__pycache__/
+*.pyc

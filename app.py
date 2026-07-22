@@ -2,6 +2,8 @@ import os
 import csv
 import json
 import sys
+import random
+import string
 import tkinter as tk
 import customtkinter as ctk
 from tkinter import filedialog, messagebox, ttk
@@ -20,7 +22,7 @@ class CardPrinterApp(ctk.CTk):
         super().__init__()
         
         self.title("Sistem Cetakan Kad MyKUSESS (Versi Save Layout + Double Preview)")
-        self.geometry("1350height=820")
+        self.geometry("1350x820")  # Diperbetulkan ralat sintaks height
         
         # --- KETETAPAN IKON PERISIAN ---
         try:
@@ -36,8 +38,8 @@ class CardPrinterApp(ctk.CTk):
         self.bg_path = ""
         self.photo_folder = ""
         self.single_photo_path = ""
-        self.csv_data = [] 
-        self.generated_card = None 
+        self.csv_data = []
+        self.generated_card = None
         self.config_filename = "layout_config.json"
         
         # --- GRID UTAMA ---
@@ -71,8 +73,16 @@ class CardPrinterApp(ctk.CTk):
         self.lbl_photo.pack(anchor="w", pady=2)
         
         ctk.CTkLabel(self.tab_single, text="Kod Unik QR:").pack(anchor="w", pady=(5, 2))
-        self.ent_qr_code = ctk.CTkEntry(self.tab_single, width=400, placeholder_text="Contoh: wpwj727")
-        self.ent_qr_code.pack(anchor="w", pady=2)
+        
+        # Frame untuk letak Entry QR dan Butang Generate sebelah-menyebelah
+        qr_input_frame = ctk.CTkFrame(self.tab_single, fg_color="transparent")
+        qr_input_frame.pack(anchor="w", pady=2)
+        
+        self.ent_qr_code = ctk.CTkEntry(qr_input_frame, width=280, placeholder_text="Contoh: wpwj727")
+        self.ent_qr_code.pack(side="left", padx=(0, 10))
+        
+        self.btn_generate_qr = ctk.CTkButton(qr_input_frame, text="Jana Kod", width=110, fg_color="#1abc9c", hover_color="#16a085", command=self.generate_random_qr_code)
+        self.btn_generate_qr.pack(side="left")
         
         ctk.CTkLabel(self.tab_single, text="Nama Panggilan (Huruf Besar):").pack(anchor="w", pady=(5, 2))
         self.ent_short_name = ctk.CTkEntry(self.tab_single, width=400, placeholder_text="Contoh: AMINAH")
@@ -98,7 +108,6 @@ class CardPrinterApp(ctk.CTk):
         
         ctk.CTkLabel(self.tab_batch, text="2. Senarai Murid (Sila pilih untuk preview/cetak):", font=ctk.CTkFont(weight="bold")).pack(anchor="w", pady=(15, 5))
         
-        # Gaya untuk Treeview (Jadual) dikekalkan kemas
         style = ttk.Style()
         style.theme_use("clam")
         style.configure("Treeview", font=("Arial", 10), rowheight=26, background="#2b2b2b" if ctk.get_appearance_mode()=="Dark" else "#ffffff", fieldbackground="#2b2b2b" if ctk.get_appearance_mode()=="Dark" else "#ffffff", foreground="white" if ctk.get_appearance_mode()=="Dark" else "black")
@@ -163,6 +172,12 @@ class CardPrinterApp(ctk.CTk):
         ctk.CTkCheckBox(self.scrollable_frame, text="Bold", variable=self.cfg_n1_bold).grid(row=10, column=0, sticky="w", padx=5, pady=5)
         ctk.CTkCheckBox(self.scrollable_frame, text="Italic", variable=self.cfg_n1_italic).grid(row=10, column=1, sticky="w", padx=5, pady=5)
         
+        # Justifikasi Nama Panggilan
+        ctk.CTkLabel(self.scrollable_frame, text="Justifikasi:").grid(row=10, column=2, sticky="w", padx=5, pady=5)
+        self.cfg_n1_justify = ctk.StringVar(value="Left")
+        self.cfg_n1_just_menu = ctk.CTkSegmentedButton(self.scrollable_frame, values=["Left", "Center", "Right"], variable=self.cfg_n1_justify, width=130)
+        self.cfg_n1_just_menu.grid(row=10, column=3, sticky="w", padx=5, pady=5)
+        
         # 4. Nama Penuh
         ctk.CTkLabel(self.scrollable_frame, text="[ NAMA PENUH ]", font=ctk.CTkFont(weight="bold")).grid(row=11, column=0, columnspan=4, sticky="w", pady=(15,5))
         self.cfg_n2_x = self.create_cfg_entry(self.scrollable_frame, "Kedudukan X:", "320", row=12, col=0)
@@ -178,6 +193,12 @@ class CardPrinterApp(ctk.CTk):
         self.cfg_n2_italic = tk.BooleanVar(value=False)
         ctk.CTkCheckBox(self.scrollable_frame, text="Bold", variable=self.cfg_n2_bold).grid(row=14, column=0, sticky="w", padx=5, pady=5)
         ctk.CTkCheckBox(self.scrollable_frame, text="Italic", variable=self.cfg_n2_italic).grid(row=14, column=1, sticky="w", padx=5, pady=5)
+        
+        # Justifikasi Nama Penuh
+        ctk.CTkLabel(self.scrollable_frame, text="Justifikasi:").grid(row=14, column=2, sticky="w", padx=5, pady=5)
+        self.cfg_n2_justify = ctk.StringVar(value="Left")
+        self.cfg_n2_just_menu = ctk.CTkSegmentedButton(self.scrollable_frame, values=["Left", "Center", "Right"], variable=self.cfg_n2_justify, width=130)
+        self.cfg_n2_just_menu.grid(row=14, column=3, sticky="w", padx=5, pady=5)
         
         frame_buttons = ctk.CTkFrame(self.scrollable_frame, fg_color="transparent")
         frame_buttons.grid(row=15, column=0, columnspan=4, sticky="w", pady=15)
@@ -212,6 +233,13 @@ class CardPrinterApp(ctk.CTk):
         self.btn_global_download = ctk.CTkButton(self.right_frame, text="💾 MUAT TURUN GAMBAR KAD (PNG)", fg_color="#2980b9", hover_color="#2471a3", font=ctk.CTkFont(size=13), width=350, command=self.download_card_image)
         self.btn_global_download.pack(pady=5)
 
+    def generate_random_qr_code(self):
+        # Menjana 7 karakter rawak (huruf kecil a-z dan nombor 0-9)
+        chars = string.ascii_lowercase + string.digits
+        random_code = ''.join(random.choices(chars, k=7))
+        self.ent_qr_code.delete(0, tk.END)
+        self.ent_qr_code.insert(0, random_code)
+
     def create_cfg_entry(self, parent, label_text, default_val, row, col):
         ctk.CTkLabel(parent, text=label_text).grid(row=row, column=col, sticky="w", padx=5, pady=5)
         entry = ctk.CTkEntry(parent, width=80)
@@ -239,8 +267,10 @@ class CardPrinterApp(ctk.CTk):
             "qr_x": self.cfg_qr_x.get(), "qr_y": self.cfg_qr_y.get(), "qr_size": self.cfg_qr_size.get(),
             "n1_x": self.cfg_n1_x.get(), "n1_y": self.cfg_n1_y.get(), "n1_font": self.cfg_n1_font.get(),
             "n1_font_file": self.cfg_n1_font_file.get(), "n1_bold": self.cfg_n1_bold.get(), "n1_italic": self.cfg_n1_italic.get(),
+            "n1_justify": self.cfg_n1_justify.get(),
             "n2_x": self.cfg_n2_x.get(), "n2_y": self.cfg_n2_y.get(), "n2_font": self.cfg_n2_font.get(),
-            "n2_font_file": self.cfg_n2_font_file.get(), "n2_bold": self.cfg_n2_bold.get(), "n2_italic": self.cfg_n2_italic.get()
+            "n2_font_file": self.cfg_n2_font_file.get(), "n2_bold": self.cfg_n2_bold.get(), "n2_italic": self.cfg_n2_italic.get(),
+            "n2_justify": self.cfg_n2_justify.get()
         }
         try:
             with open(self.config_filename, "w") as f:
@@ -270,12 +300,14 @@ class CardPrinterApp(ctk.CTk):
             self.cfg_n1_font_file.set(data.get("n1_font_file", "arial.ttf"))
             self.cfg_n1_bold.set(data.get("n1_bold", True))
             self.cfg_n1_italic.set(data.get("n1_italic", False))
+            self.cfg_n1_justify.set(data.get("n1_justify", "Left"))
             set_val(self.cfg_n2_x, data.get("n2_x", "320"))
             set_val(self.cfg_n2_y, data.get("n2_y", "560"))
             set_val(self.cfg_n2_font, data.get("n2_font", "30"))
             self.cfg_n2_font_file.set(data.get("n2_font_file", "arial.ttf"))
             self.cfg_n2_bold.set(data.get("n2_bold", False))
             self.cfg_n2_italic.set(data.get("n2_italic", False))
+            self.cfg_n2_justify.set(data.get("n2_justify", "Left"))
             if not silent:
                 messagebox.showinfo("Berjaya", "Tetapan layout berjaya dipulihkan!")
                 self.trigger_refresh_preview()
@@ -300,7 +332,7 @@ class CardPrinterApp(ctk.CTk):
     def load_csv(self):
         csv_path = filedialog.askopenfilename(filetypes=[("CSV Files", "*.csv")])
         if not csv_path: return
-        self.tree.delete(*self.tree.get_children()) 
+        self.tree.delete(*self.tree.get_children())
         self.csv_data = []
         try:
             with open(csv_path, mode='r', encoding='utf-8') as f:
@@ -344,10 +376,13 @@ class CardPrinterApp(ctk.CTk):
         actual_w, actual_h = teacher_img.size
         card.paste(teacher_img, (img_x + (img_w - actual_w) // 2, img_y + (img_h - actual_h) // 2), teacher_img)
         
+        clean_code = qr_code.strip().lower()
+        if clean_code.startswith("mykusses:"):
+            clean_code = clean_code[len("mykusses:"):]
         qr = qrcode.QRCode(box_size=6, border=1)
-        qr.add_data(f"mykusses:{qr_code.strip().lower()}")
+        qr.add_data(f"mykusses:{clean_code}")
         qr.make(fit=True)
-        qr_img = qr.make_image(fill_color="black", back_color="white").convert('RGBA').resize((qr_sz, qr_sz))
+        qr_img = qr.make_image(fill_color="black", back_color="white").convert('RGBA').resize((qr_sz, qr_sz), resample=Image.NEAREST)
         card.paste(qr_img, (qr_x, qr_y))
         
         draw = ImageDraw.Draw(card)
@@ -356,8 +391,17 @@ class CardPrinterApp(ctk.CTk):
         try: font_full = ImageFont.truetype(self.get_font_path(self.cfg_n2_font_file.get(), self.cfg_n2_bold.get(), self.cfg_n2_italic.get()), n2_fs)
         except: font_full = ImageFont.load_default()
         
-        draw.text((n1_x, n1_y), short_name.upper(), fill="black", font=font_short)
-        draw.text((n2_x, n2_y), full_name.upper(), fill="black", font=font_full)
+        # Logik Pemilihan Justifikasi Teks (Left / Center / Right) menggunakan parameter Anchor Pillow
+        align_map = {
+            "Left": "la",    # Kiri
+            "Center": "ma",  # Tengah
+            "Right": "ra"    # Kanan
+        }
+        anchor1 = align_map.get(self.cfg_n1_justify.get(), "la")
+        anchor2 = align_map.get(self.cfg_n2_justify.get(), "la")
+        
+        draw.text((n1_x, n1_y), short_name.upper(), fill="black", font=font_short, anchor=anchor1)
+        draw.text((n2_x, n2_y), full_name.upper(), fill="black", font=font_full, anchor=anchor2)
         return card
 
     def update_preview_ui(self, card_image):
@@ -441,16 +485,18 @@ class CardPrinterApp(ctk.CTk):
     def send_to_printer(self, filename):
         printer_name = self.cbo_printer.get()
         if not printer_name or printer_name == "Tiada Printer Ditemui": raise Exception("Pencetak tidak sah!")
-        bmp = Image.open(filename)
         hdc = win32ui.CreateDC()
-        hdc.CreatePrinterDC(printer_name)
-        hdc.StartDoc("Batch Cetak MyKUSESS")
-        hdc.StartPage()
-        dib = ImageWin.Dib(bmp)
-        dib.draw(hdc.GetHandleOutput(), (0, 0, 1013, 638))
-        hdc.EndPage()
-        hdc.EndDoc()
-        hdc.DeleteDC()
+        try:
+            hdc.CreatePrinterDC(printer_name)
+            hdc.StartDoc("Batch Cetak MyKUSESS")
+            hdc.StartPage()
+            with Image.open(filename) as bmp:
+                dib = ImageWin.Dib(bmp)
+                dib.draw(hdc.GetHandleOutput(), (0, 0, 1013, 638))
+            hdc.EndPage()
+            hdc.EndDoc()
+        finally:
+            hdc.DeleteDC()
 
 if __name__ == "__main__":
     app = CardPrinterApp()
