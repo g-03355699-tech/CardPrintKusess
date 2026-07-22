@@ -251,6 +251,11 @@ class CardPrinterApp(ctk.CTk):
 
         self.section_header(pad, "2", "Senarai Murid (Klik untuk tanda/pilih & Preview)")
 
+        selection_btn_frame = ctk.CTkFrame(pad, fg_color="transparent")
+        selection_btn_frame.pack(fill="x", pady=(0, 5))
+        self.btn_secondary(selection_btn_frame, "☑  Pilih Semua", self.select_all_records, width=140, height=32).pack(side="left", padx=(0, 8))
+        self.btn_danger(selection_btn_frame, "☐  Nyahpilih Semua", self.deselect_all_records, width=140).pack(side="left")
+
         style = ttk.Style()
         style.theme_use("clam")
         style.configure("Treeview", font=(FONT_FAMILY, 9), rowheight=27, background=COLOR_SURFACE, fieldbackground=COLOR_SURFACE, foreground=COLOR_TEXT, borderwidth=0)
@@ -573,6 +578,20 @@ class CardPrinterApp(ctk.CTk):
     def clear_search(self):
         self.ent_search.delete(0, tk.END)
         self.refresh_treeview()
+
+    def select_all_records(self):
+        """Menandakan semua rekod murid."""
+        if not self.csv_data: return
+        for row in self.csv_data:
+            row['pilih'] = True
+        self.refresh_treeview(self.ent_search.get())
+
+    def deselect_all_records(self):
+        """Mengosongkan tanda daripada semua rekod murid."""
+        if not self.csv_data: return
+        for row in self.csv_data:
+            row['pilih'] = False
+        self.refresh_treeview(self.ent_search.get())
 
     def on_tree_click(self, event):
         # Mengesan baris dan lajur yang diklik
