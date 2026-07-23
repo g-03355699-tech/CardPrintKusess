@@ -5,6 +5,9 @@ temp_print.png
 temp_print_card.png
 temp_batch_print.png
 
+# Tetapan templat tersimpan - laluan fail khusus mesin pengguna, jangan push
+template_presets.json
+
 # Python
 __pycache__/
 *.pyc

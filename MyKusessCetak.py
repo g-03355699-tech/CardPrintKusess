@@ -6,7 +6,7 @@ import random
 import string
 import tkinter as tk
 import customtkinter as ctk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, ttk, simpledialog
 from PIL import Image, ImageDraw, ImageFont, ImageTk, ImageOps
 import qrcode
 import win32print
@@ -14,7 +14,7 @@ import win32ui
 import win32con
 from PIL import ImageWin
 
-APP_VERSION = "v1.01"
+APP_VERSION = "v1.02"
 
 # ============================================================
 #  TEMA & GAYA — reka bentuk profesional seakan Badgy Studio
@@ -68,6 +68,9 @@ class CardPrinterApp(ctk.CTk):
         self.csv_data = []  # Menyimpan data penuh: [{'kod_qr':..., 'pilih': True/False, ...}]
         self.generated_card = None
         self.config_filename = "layout_config.json"
+        self.template_presets_filename = "template_presets.json"
+        self.template_presets = [None, None, None, None]  # sehingga 4 tetapan asas template (background) tersimpan
+        self.load_template_presets()
 
         # --- GRID UTAMA (baris 0 = header jenama, baris 1 = kandungan) ---
         self.grid_columnconfigure(0, weight=4, minsize=700)
@@ -105,6 +108,7 @@ class CardPrinterApp(ctk.CTk):
         self.build_tab_batch()
         self.build_tab_config()
         self.load_layout_config(silent=True)
+        self.use_template_slot(0, silent=True)
         self.build_preview_panel()
 
     # ============================================================
@@ -187,6 +191,27 @@ class CardPrinterApp(ctk.CTk):
         self.btn_secondary(pad, "🖼  Pilih Template Kad (Background)", self.select_bg, width=320).pack(anchor="w", pady=5)
         self.lbl_bg = self.status_label(pad, "Template: Tiada fail dipilih")
         self.lbl_bg.pack(anchor="w", pady=2)
+
+        self.field_label(pad, "Templat Tersimpan (sehingga 4 slot) — 'Guna' untuk muat, 💾 untuk simpan template semasa").pack(anchor="w", pady=(12, 4))
+        slot_frame = ctk.CTkFrame(pad, fg_color=COLOR_SURFACE_ALT, corner_radius=10)
+        slot_frame.pack(anchor="w", pady=2, fill="x")
+        self.lbl_template_slots = []
+        for i in range(4):
+            col = ctk.CTkFrame(slot_frame, fg_color="transparent")
+            col.grid(row=0, column=i, padx=8, pady=8, sticky="n")
+            lbl = ctk.CTkLabel(col, text=f"Slot {i+1}: Kosong", font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+                                text_color=COLOR_TEXT_MUTED, wraplength=95, justify="center")
+            lbl.pack(pady=(0, 4))
+            self.lbl_template_slots.append(lbl)
+            btn_row = ctk.CTkFrame(col, fg_color="transparent")
+            btn_row.pack()
+            ctk.CTkButton(btn_row, text="Guna", width=50, height=26, fg_color=COLOR_ACCENT, hover_color=COLOR_ACCENT_HOVER,
+                          font=ctk.CTkFont(family=FONT_FAMILY, size=10, weight="bold"), corner_radius=6,
+                          command=lambda idx=i: self.use_template_slot(idx)).pack(side="left", padx=(0, 3))
+            ctk.CTkButton(btn_row, text="💾", width=30, height=26, fg_color="transparent", hover_color=COLOR_SURFACE,
+                          text_color=COLOR_TEXT, border_width=1, border_color=COLOR_BORDER, corner_radius=6,
+                          command=lambda idx=i: self.save_template_slot(idx)).pack(side="left")
+        self.refresh_template_slot_labels()
 
         self.section_header(pad, "2", "Maklumat Individu")
         self.btn_secondary(pad, "👤  Pilih Foto Guru/Murid", self.select_single_photo, width=320).pack(anchor="w", pady=5)
@@ -520,6 +545,62 @@ class CardPrinterApp(ctk.CTk):
         self.bg_path = filedialog.askopenfilename(filetypes=[("Image Files", "*.png *.jpg *.jpeg")])
         if self.bg_path:
             self.lbl_bg.configure(text=f"Template: {os.path.basename(self.bg_path)}", text_color=COLOR_SUCCESS)
+
+    # ============================================================
+    # TEMPLAT TERSIMPAN (sehingga 4 slot tetapan asas template)
+    # ============================================================
+    def load_template_presets(self):
+        self.template_presets = [None, None, None, None]
+        if not os.path.exists(self.template_presets_filename):
+            return
+        try:
+            with open(self.template_presets_filename, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            for i in range(min(4, len(data))):
+                self.template_presets[i] = data[i]
+        except Exception:
+            pass
+
+    def save_template_presets(self):
+        try:
+            with open(self.template_presets_filename, "w", encoding="utf-8") as f:
+                json.dump(self.template_presets, f, indent=4)
+        except Exception as e:
+            messagebox.showerror("Ralat", f"Gagal menyimpan templat tersimpan:\n{str(e)}")
+
+    def refresh_template_slot_labels(self):
+        for i, lbl in enumerate(self.lbl_template_slots):
+            preset = self.template_presets[i]
+            if preset and preset.get("path"):
+                lbl.configure(text=f"Slot {i+1}: {preset.get('name') or os.path.basename(preset['path'])}")
+            else:
+                lbl.configure(text=f"Slot {i+1}: Kosong")
+
+    def save_template_slot(self, idx):
+        if not self.bg_path:
+            messagebox.showwarning("Ralat", "Sila pilih Template Kad (Background) terlebih dahulu sebelum menyimpan ke slot.")
+            return
+        name = simpledialog.askstring("Nama Templat", f"Nama untuk Slot {idx+1}:",
+                                       initialvalue=os.path.splitext(os.path.basename(self.bg_path))[0])
+        if name is None:
+            return
+        self.template_presets[idx] = {"name": name.strip() or os.path.basename(self.bg_path), "path": self.bg_path}
+        self.save_template_presets()
+        self.refresh_template_slot_labels()
+        messagebox.showinfo("Berjaya", f"Template disimpan ke Slot {idx+1}.")
+
+    def use_template_slot(self, idx, silent=False):
+        preset = self.template_presets[idx]
+        if not preset or not preset.get("path"):
+            if not silent:
+                messagebox.showinfo("Slot Kosong", f"Slot {idx+1} belum mempunyai templat tersimpan.\nPilih Template Kad dahulu, kemudian tekan 💾 untuk simpan ke slot ini.")
+            return
+        if not os.path.exists(preset["path"]):
+            if not silent:
+                messagebox.showerror("Ralat", f"Fail templat untuk Slot {idx+1} tidak dijumpai:\n{preset['path']}")
+            return
+        self.bg_path = preset["path"]
+        self.lbl_bg.configure(text=f"Template: {os.path.basename(self.bg_path)}", text_color=COLOR_SUCCESS)
 
     def select_single_photo(self):
         self.single_photo_path = filedialog.askopenfilename(filetypes=[("Image Files", "*.png *.jpg *.jpeg")])
