@@ -114,6 +114,15 @@ class CardPrinterApp(ctk.CTk):
         self.restore_app_settings()
         self.build_preview_panel()
 
+        self.protocol("WM_DELETE_WINDOW", self.on_app_close)
+
+    def on_app_close(self):
+        # Jaring keselamatan terakhir - pastikan sebarang suntingan konfigurasi
+        # layout yang belum dikesan (cth. medan terakhir tanpa fokus keluar)
+        # tetap disimpan sebelum aplikasi ditutup.
+        self.auto_save_layout_config()
+        self.destroy()
+
     # ============================================================
     #  KOMPONEN UI BOLEH GUNA SEMULA (helper widget & gaya)
     # ============================================================
@@ -354,17 +363,21 @@ class CardPrinterApp(ctk.CTk):
         self.cfg_n1_font = self.create_cfg_entry(self.scrollable_frame, "Saiz Font:", "45", row=9, col=0)
 
         self.field_label(self.scrollable_frame, "Jenis Font:").grid(row=9, column=2, sticky="w", padx=5)
-        self.cfg_n1_font_file = ctk.CTkComboBox(self.scrollable_frame, values=FONT_OPTIONS, width=130, button_color=COLOR_ACCENT, border_color=COLOR_BORDER)
+        self.cfg_n1_font_file = ctk.CTkComboBox(self.scrollable_frame, values=FONT_OPTIONS, width=130, button_color=COLOR_ACCENT, border_color=COLOR_BORDER,
+                                                  command=self.auto_save_layout_config)
         self.cfg_n1_font_file.set("arial.ttf")
         self.cfg_n1_font_file.grid(row=9, column=3, sticky="w", padx=5)
 
         self.cfg_n1_bold = tk.BooleanVar(value=True)
         self.cfg_n1_italic = tk.BooleanVar(value=False)
+        self.cfg_n1_bold.trace_add("write", self.auto_save_layout_config)
+        self.cfg_n1_italic.trace_add("write", self.auto_save_layout_config)
         ctk.CTkCheckBox(self.scrollable_frame, text="Bold", variable=self.cfg_n1_bold, fg_color=COLOR_ACCENT, hover_color=COLOR_ACCENT_HOVER).grid(row=10, column=0, sticky="w", padx=5, pady=5)
         ctk.CTkCheckBox(self.scrollable_frame, text="Italic", variable=self.cfg_n1_italic, fg_color=COLOR_ACCENT, hover_color=COLOR_ACCENT_HOVER).grid(row=10, column=1, sticky="w", padx=5, pady=5)
 
         self.field_label(self.scrollable_frame, "Justifikasi:").grid(row=10, column=2, sticky="w", padx=5, pady=5)
         self.cfg_n1_justify = ctk.StringVar(value="Left")
+        self.cfg_n1_justify.trace_add("write", self.auto_save_layout_config)
         self.cfg_n1_just_menu = ctk.CTkSegmentedButton(self.scrollable_frame, values=["Left", "Center", "Right"], variable=self.cfg_n1_justify, width=130, selected_color=COLOR_ACCENT, selected_hover_color=COLOR_ACCENT_HOVER)
         self.cfg_n1_just_menu.grid(row=10, column=3, sticky="w", padx=5, pady=5)
 
@@ -375,17 +388,21 @@ class CardPrinterApp(ctk.CTk):
         self.cfg_n2_font = self.create_cfg_entry(self.scrollable_frame, "Saiz Font:", "30", row=13, col=0)
 
         self.field_label(self.scrollable_frame, "Jenis Font:").grid(row=13, column=2, sticky="w", padx=5)
-        self.cfg_n2_font_file = ctk.CTkComboBox(self.scrollable_frame, values=FONT_OPTIONS, width=130, button_color=COLOR_ACCENT, border_color=COLOR_BORDER)
+        self.cfg_n2_font_file = ctk.CTkComboBox(self.scrollable_frame, values=FONT_OPTIONS, width=130, button_color=COLOR_ACCENT, border_color=COLOR_BORDER,
+                                                  command=self.auto_save_layout_config)
         self.cfg_n2_font_file.set("arial.ttf")
         self.cfg_n2_font_file.grid(row=13, column=3, sticky="w", padx=5)
 
         self.cfg_n2_bold = tk.BooleanVar(value=False)
         self.cfg_n2_italic = tk.BooleanVar(value=False)
+        self.cfg_n2_bold.trace_add("write", self.auto_save_layout_config)
+        self.cfg_n2_italic.trace_add("write", self.auto_save_layout_config)
         ctk.CTkCheckBox(self.scrollable_frame, text="Bold", variable=self.cfg_n2_bold, fg_color=COLOR_ACCENT, hover_color=COLOR_ACCENT_HOVER).grid(row=14, column=0, sticky="w", padx=5, pady=5)
         ctk.CTkCheckBox(self.scrollable_frame, text="Italic", variable=self.cfg_n2_italic, fg_color=COLOR_ACCENT, hover_color=COLOR_ACCENT_HOVER).grid(row=14, column=1, sticky="w", padx=5, pady=5)
 
         self.field_label(self.scrollable_frame, "Justifikasi:").grid(row=14, column=2, sticky="w", padx=5, pady=5)
         self.cfg_n2_justify = ctk.StringVar(value="Left")
+        self.cfg_n2_justify.trace_add("write", self.auto_save_layout_config)
         self.cfg_n2_just_menu = ctk.CTkSegmentedButton(self.scrollable_frame, values=["Left", "Center", "Right"], variable=self.cfg_n2_justify, width=130, selected_color=COLOR_ACCENT, selected_hover_color=COLOR_ACCENT_HOVER)
         self.cfg_n2_just_menu.grid(row=14, column=3, sticky="w", padx=5, pady=5)
 
@@ -396,17 +413,21 @@ class CardPrinterApp(ctk.CTk):
         self.cfg_n3_font = self.create_cfg_entry(self.scrollable_frame, "Saiz Font:", "25", row=17, col=0)
 
         self.field_label(self.scrollable_frame, "Jenis Font:").grid(row=17, column=2, sticky="w", padx=5)
-        self.cfg_n3_font_file = ctk.CTkComboBox(self.scrollable_frame, values=FONT_OPTIONS, width=130, button_color=COLOR_ACCENT, border_color=COLOR_BORDER)
+        self.cfg_n3_font_file = ctk.CTkComboBox(self.scrollable_frame, values=FONT_OPTIONS, width=130, button_color=COLOR_ACCENT, border_color=COLOR_BORDER,
+                                                  command=self.auto_save_layout_config)
         self.cfg_n3_font_file.set("arial.ttf")
         self.cfg_n3_font_file.grid(row=17, column=3, sticky="w", padx=5)
 
         self.cfg_n3_bold = tk.BooleanVar(value=False)
         self.cfg_n3_italic = tk.BooleanVar(value=True)
+        self.cfg_n3_bold.trace_add("write", self.auto_save_layout_config)
+        self.cfg_n3_italic.trace_add("write", self.auto_save_layout_config)
         ctk.CTkCheckBox(self.scrollable_frame, text="Bold", variable=self.cfg_n3_bold, fg_color=COLOR_ACCENT, hover_color=COLOR_ACCENT_HOVER).grid(row=18, column=0, sticky="w", padx=5, pady=5)
         ctk.CTkCheckBox(self.scrollable_frame, text="Italic", variable=self.cfg_n3_italic, fg_color=COLOR_ACCENT, hover_color=COLOR_ACCENT_HOVER).grid(row=18, column=1, sticky="w", padx=5, pady=5)
 
         self.field_label(self.scrollable_frame, "Justifikasi:").grid(row=18, column=2, sticky="w", padx=5, pady=5)
         self.cfg_n3_justify = ctk.StringVar(value="Left")
+        self.cfg_n3_justify.trace_add("write", self.auto_save_layout_config)
         self.cfg_n3_just_menu = ctk.CTkSegmentedButton(self.scrollable_frame, values=["Left", "Center", "Right"], variable=self.cfg_n3_justify, width=130, selected_color=COLOR_ACCENT, selected_hover_color=COLOR_ACCENT_HOVER)
         self.cfg_n3_just_menu.grid(row=18, column=3, sticky="w", padx=5, pady=5)
 
@@ -467,6 +488,7 @@ class CardPrinterApp(ctk.CTk):
         entry = ctk.CTkEntry(container, width=64, border_color=COLOR_BORDER)
         entry.insert(0, default_val)
         entry.pack(side="left")
+        entry.bind("<FocusOut>", self.auto_save_layout_config)
         spin_frame = ctk.CTkFrame(container, fg_color="transparent")
         spin_frame.pack(side="left", padx=(2, 0))
         ctk.CTkButton(spin_frame, text="▲", width=18, height=13, corner_radius=3, fg_color=COLOR_SURFACE_ALT,
@@ -484,6 +506,7 @@ class CardPrinterApp(ctk.CTk):
             current = 0
         entry.delete(0, tk.END)
         entry.insert(0, str(current + delta))
+        self.auto_save_layout_config()
 
     def populate_printers(self):
         try:
@@ -498,7 +521,7 @@ class CardPrinterApp(ctk.CTk):
             self.cbo_printer.configure(values=["Tiada Printer Ditemui"])
             self.cbo_printer.set("Tiada Printer Ditemui")
 
-    def save_layout_config(self):
+    def save_layout_config(self, silent=False):
         config_data = {
             "img_x": self.cfg_img_x.get(), "img_y": self.cfg_img_y.get(),
             "img_w": self.cfg_img_w.get(), "img_h": self.cfg_img_h.get(),
@@ -516,9 +539,16 @@ class CardPrinterApp(ctk.CTk):
         try:
             with open(self.config_filename, "w") as f:
                 json.dump(config_data, f, indent=4)
-            messagebox.showinfo("Berjaya", "Konfigurasi layout berjaya disimpan!")
+            if not silent:
+                messagebox.showinfo("Berjaya", "Konfigurasi layout berjaya disimpan!")
         except Exception as e:
-            messagebox.showerror("Ralat", f"Gagal menyimpan fail konfigurasi:\n{str(e)}")
+            if not silent:
+                messagebox.showerror("Ralat", f"Gagal menyimpan fail konfigurasi:\n{str(e)}")
+
+    def auto_save_layout_config(self, *_args):
+        # Dipanggil setiap kali mana-mana medan konfigurasi layout berubah,
+        # supaya tetapan pengguna terus dikekalkan tanpa perlu tekan "Simpan Layout".
+        self.save_layout_config(silent=True)
 
     def load_layout_config(self, silent=False):
         if not os.path.exists(self.config_filename): return
@@ -858,6 +888,7 @@ class CardPrinterApp(ctk.CTk):
         except Exception as e: messagebox.showerror("Ralat", str(e))
 
     def trigger_refresh_preview(self):
+        self.auto_save_layout_config()
         selected_items = self.tree.selection()
         if selected_items:
             # Trigger preview baris pertama yang diserlahkan

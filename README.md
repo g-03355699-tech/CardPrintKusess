@@ -7,6 +7,7 @@ Aplikasi desktop (Windows, Python + CustomTkinter) untuk menjana dan mencetak ka
 - **Tetapan folder gambar & fail CSV disimpan automatik** — sebaik sahaja folder gambar dipilih atau CSV dimuat naik (termasuk pengekodan yang dipilih), tetapan tersebut disimpan (`app_settings.json`) dan dipulihkan secara automatik & senyap setiap kali aplikasi dimulakan; CSV terakhir turut dimuat semula terus ke senarai tanpa perlu klik "Muat Naik CSV" lagi.
 - **Butang naik/turun (▲/▼) pada semua medan angka** di tab Konfigurasi Layout (kedudukan X/Y, lebar/tinggi, saiz QR, saiz font) — laraskan nilai dengan klik tanpa perlu menaip.
 - **Pembetulan butang tersembunyi**: tab "Cetak Satu-Satu" dan "Cetak Pukal" kini boleh skrol — sebelum ini butang di bahagian bawah (cth. "Jana Preview", "Cetak Semua") boleh terpotong/hilang di luar paparan apabila kandungan tab lebih tinggi daripada ruang skrin.
+- **Konfigurasi Layout disimpan automatik** — sebarang perubahan pada medan kedudukan/saiz, font, bold/italic, atau justifikasi kini terus disimpan (semasa medan kehilangan fokus, tukar dropdown/checkbox/justifikasi, tekan "Kemas Kini & Jana Preview", atau tutup aplikasi) supaya tetapan terakhir sentiasa dikekalkan tanpa perlu tekan "Simpan Layout" secara manual.
 
 ## v1.02 — Nota Keluaran
 
