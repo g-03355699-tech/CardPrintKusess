@@ -6,7 +6,7 @@ import random
 import string
 import tkinter as tk
 import customtkinter as ctk
-from tkinter import filedialog, messagebox, ttk, simpledialog
+from tkinter import filedialog, messagebox, ttk
 from PIL import Image, ImageDraw, ImageFont, ImageTk, ImageOps
 import qrcode
 import win32print
@@ -155,14 +155,20 @@ class CardPrinterApp(ctk.CTk):
             text_color="#FFFFFF", fg_color=COLOR_ACCENT, corner_radius=10, width=52, height=24,
         ).pack(side="right")
 
-    def section_header(self, parent, number, text):
+    def section_header(self, parent, number, text, subtitle=None):
         row = ctk.CTkFrame(parent, fg_color="transparent")
         row.pack(anchor="w", fill="x", pady=(18, 10))
         ctk.CTkLabel(
             row, text=str(number), width=22, height=22, corner_radius=11, fg_color=COLOR_ACCENT,
             text_color="#FFFFFF", font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
-        ).pack(side="left", padx=(0, 8))
-        ctk.CTkLabel(row, text=text, font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"), text_color=COLOR_TEXT).pack(side="left")
+        ).pack(side="left", padx=(0, 8), anchor="n" if subtitle else "center")
+        if subtitle:
+            text_box = ctk.CTkFrame(row, fg_color="transparent")
+            text_box.pack(side="left", anchor="w")
+            ctk.CTkLabel(text_box, text=text, font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"), text_color=COLOR_TEXT).pack(anchor="w")
+            ctk.CTkLabel(text_box, text=subtitle, font=ctk.CTkFont(family=FONT_FAMILY, size=10), text_color=COLOR_TEXT_MUTED).pack(anchor="w")
+        else:
+            ctk.CTkLabel(row, text=text, font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"), text_color=COLOR_TEXT).pack(side="left")
         return row
 
     def field_label(self, parent, text):
@@ -286,7 +292,7 @@ class CardPrinterApp(ctk.CTk):
         self.ent_search.bind("<KeyRelease>", self.filter_search)
         self.btn_secondary(search_frame, "Kosongkan", self.clear_search, width=90, height=32).pack(side="left", padx=5)
 
-        self.section_header(pad, "2", "Senarai Murid (Klik untuk tanda/pilih & Preview; Dwi-klik Nama Penuh untuk edit)")
+        self.section_header(pad, "2", "Senarai Murid", subtitle="(Klik untuk tanda/pilih & Preview; Dwi-klik Nama Penuh untuk edit)")
 
         selection_btn_frame = ctk.CTkFrame(pad, fg_color="transparent")
         selection_btn_frame.pack(fill="x", pady=(0, 5))
@@ -613,6 +619,51 @@ class CardPrinterApp(ctk.CTk):
         except Exception:
             pass
 
+    def ask_text_input(self, title, label_text, initial_value=""):
+        # Dialog input tersendiri (bukan simpledialog Tk lalai) supaya medan
+        # teks cukup lebar untuk nama/label panjang dan konsisten dengan gaya app.
+        result = {"value": None}
+        dialog = ctk.CTkToplevel(self)
+        dialog.title(title)
+        dialog.geometry("480x170")
+        dialog.resizable(False, False)
+        dialog.configure(fg_color=COLOR_SURFACE)
+        dialog.transient(self)
+
+        ctk.CTkLabel(dialog, text=label_text, font=ctk.CTkFont(family=FONT_FAMILY, size=13), text_color=COLOR_TEXT).pack(anchor="w", padx=20, pady=(22, 8))
+
+        entry = ctk.CTkEntry(dialog, width=440, height=38, border_color=COLOR_BORDER, font=ctk.CTkFont(family=FONT_FAMILY, size=13))
+        entry.insert(0, initial_value)
+        entry.pack(padx=20)
+
+        def on_ok(event=None):
+            result["value"] = entry.get()
+            dialog.destroy()
+
+        def on_cancel(event=None):
+            dialog.destroy()
+
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_frame.pack(pady=(18, 15))
+        self.btn_secondary(btn_frame, "Batal", on_cancel, width=100).pack(side="left", padx=(0, 8))
+        self.btn_primary(btn_frame, "OK", on_ok, width=100).pack(side="left")
+
+        entry.bind("<Return>", on_ok)
+        dialog.bind("<Escape>", on_cancel)
+        dialog.protocol("WM_DELETE_WINDOW", on_cancel)
+
+        dialog.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width() // 2) - (dialog.winfo_width() // 2)
+        y = self.winfo_y() + (self.winfo_height() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
+
+        dialog.grab_set()
+        entry.focus()
+        entry.select_range(0, tk.END)
+        entry.icursor(tk.END)
+        dialog.wait_window()
+        return result["value"]
+
     def save_template_presets(self):
         try:
             with open(self.template_presets_filename, "w", encoding="utf-8") as f:
@@ -632,8 +683,8 @@ class CardPrinterApp(ctk.CTk):
         if not self.bg_path:
             messagebox.showwarning("Ralat", "Sila pilih Template Kad (Background) terlebih dahulu sebelum menyimpan ke slot.")
             return
-        name = simpledialog.askstring("Nama Templat", f"Nama untuk Slot {idx+1}:",
-                                       initialvalue=os.path.splitext(os.path.basename(self.bg_path))[0])
+        name = self.ask_text_input("Nama Templat", f"Nama untuk Slot {idx+1}:",
+                                    os.path.splitext(os.path.basename(self.bg_path))[0])
         if name is None:
             return
         self.template_presets[idx] = {"name": name.strip() or os.path.basename(self.bg_path), "path": self.bg_path}
@@ -824,7 +875,7 @@ class CardPrinterApp(ctk.CTk):
         record = next((r for r in self.csv_data if r['kod_qr'] == kod_qr_val), None)
         if not record: return
 
-        new_name = simpledialog.askstring("Edit Nama Penuh", "Nama Penuh:", initialvalue=record['nama_penuh'])
+        new_name = self.ask_text_input("Edit Nama Penuh", "Nama Penuh:", record['nama_penuh'])
         if new_name is None: return
         new_name = new_name.strip()
         if not new_name:
