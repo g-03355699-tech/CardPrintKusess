@@ -8,6 +8,9 @@ temp_batch_print.png
 # Tetapan templat tersimpan - laluan fail khusus mesin pengguna, jangan push
 template_presets.json
 
+# Tetapan folder gambar & CSV terakhir - laluan fail khusus mesin pengguna, jangan push
+app_settings.json
+
 # Python
 __pycache__/
 *.pyc

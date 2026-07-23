@@ -14,7 +14,7 @@ import win32ui
 import win32con
 from PIL import ImageWin
 
-APP_VERSION = "v1.02"
+APP_VERSION = "v1.03"
 
 # ============================================================
 #  TEMA & GAYA — reka bentuk profesional seakan Badgy Studio
@@ -71,6 +71,8 @@ class CardPrinterApp(ctk.CTk):
         self.template_presets_filename = "template_presets.json"
         self.template_presets = [None, None, None, None]  # sehingga 4 tetapan asas template (background) tersimpan
         self.load_template_presets()
+        self.app_settings_filename = "app_settings.json"
+        self.last_csv_path = ""  # laluan fail CSV terakhir dimuat naik (untuk pulihkan semasa mula)
 
         # --- GRID UTAMA (baris 0 = header jenama, baris 1 = kandungan) ---
         self.grid_columnconfigure(0, weight=4, minsize=700)
@@ -109,6 +111,7 @@ class CardPrinterApp(ctk.CTk):
         self.build_tab_config()
         self.load_layout_config(silent=True)
         self.use_template_slot(0, silent=True)
+        self.restore_app_settings()
         self.build_preview_panel()
 
     # ============================================================
@@ -184,7 +187,7 @@ class CardPrinterApp(ctk.CTk):
     # TAB 1: CETAK SATU-SATU
     # ============================================================
     def build_tab_single(self):
-        pad = ctk.CTkFrame(self.tab_single, fg_color="transparent")
+        pad = ctk.CTkScrollableFrame(self.tab_single, fg_color="transparent")
         pad.pack(fill="both", expand=True, padx=8)
 
         self.section_header(pad, "1", "Tetapan Asas Template")
@@ -244,7 +247,7 @@ class CardPrinterApp(ctk.CTk):
     # TAB 2: CETAK PUKAL (BATCH CSV)
     # ============================================================
     def build_tab_batch(self):
-        pad = ctk.CTkFrame(self.tab_batch, fg_color="transparent")
+        pad = ctk.CTkScrollableFrame(self.tab_batch, fg_color="transparent")
         pad.pack(fill="both", expand=True, padx=8)
 
         self.section_header(pad, "1", "Sediakan Tetapan Fail")
@@ -457,12 +460,30 @@ class CardPrinterApp(ctk.CTk):
         self.ent_qr_code.delete(0, tk.END)
         self.ent_qr_code.insert(0, random_code)
 
-    def create_cfg_entry(self, parent, label_text, default_val, row, col):
+    def create_cfg_entry(self, parent, label_text, default_val, row, col, step=1):
         self.field_label(parent, label_text).grid(row=row, column=col, sticky="w", padx=5, pady=5)
-        entry = ctk.CTkEntry(parent, width=80, border_color=COLOR_BORDER)
+        container = ctk.CTkFrame(parent, fg_color="transparent")
+        container.grid(row=row, column=col + 1, sticky="w", padx=5, pady=5)
+        entry = ctk.CTkEntry(container, width=64, border_color=COLOR_BORDER)
         entry.insert(0, default_val)
-        entry.grid(row=row, column=col + 1, sticky="w", padx=5, pady=5)
+        entry.pack(side="left")
+        spin_frame = ctk.CTkFrame(container, fg_color="transparent")
+        spin_frame.pack(side="left", padx=(2, 0))
+        ctk.CTkButton(spin_frame, text="▲", width=18, height=13, corner_radius=3, fg_color=COLOR_SURFACE_ALT,
+                      hover_color=COLOR_BORDER, text_color=COLOR_TEXT, font=ctk.CTkFont(family=FONT_FAMILY, size=8),
+                      command=lambda: self.step_cfg_entry(entry, step)).pack()
+        ctk.CTkButton(spin_frame, text="▼", width=18, height=13, corner_radius=3, fg_color=COLOR_SURFACE_ALT,
+                      hover_color=COLOR_BORDER, text_color=COLOR_TEXT, font=ctk.CTkFont(family=FONT_FAMILY, size=8),
+                      command=lambda: self.step_cfg_entry(entry, -step)).pack(pady=(1, 0))
         return entry
+
+    def step_cfg_entry(self, entry, delta):
+        try:
+            current = int(entry.get())
+        except ValueError:
+            current = 0
+        entry.delete(0, tk.END)
+        entry.insert(0, str(current + delta))
 
     def populate_printers(self):
         try:
@@ -608,14 +629,19 @@ class CardPrinterApp(ctk.CTk):
             self.lbl_photo.configure(text=f"Foto: {os.path.basename(self.single_photo_path)}", text_color=COLOR_SUCCESS)
 
     def select_photo_folder(self):
-        self.photo_folder = filedialog.askdirectory()
-        if self.photo_folder:
+        folder = filedialog.askdirectory()
+        if folder:
+            self.photo_folder = folder
             self.lbl_folder.configure(text=f"Folder: {self.photo_folder}", text_color=COLOR_SUCCESS)
+            self.save_app_settings()
 
     def load_csv(self):
         csv_path = filedialog.askopenfilename(filetypes=[("CSV Files", "*.csv")])
         if not csv_path: return
+        if self._load_csv_from_path(csv_path):
+            self.save_app_settings()
 
+    def _load_csv_from_path(self, csv_path, silent=False):
         # Pengekodan CSV mengikut pilihan pengguna
         enc_option = self.cbo_encoding.get()
         encoding_map = {
@@ -642,8 +668,49 @@ class CardPrinterApp(ctk.CTk):
                     self.csv_data.append(row_data)
             self.refresh_treeview()
             self.lbl_csv.configure(text=f"CSV: {os.path.basename(csv_path)} ({len(self.csv_data)} rekod)", text_color=COLOR_SUCCESS)
+            self.last_csv_path = csv_path
+            return True
         except Exception as e:
-            messagebox.showerror("Ralat CSV", f"Gagal membaca CSV menggunakan {selected_encoding}:\n{str(e)}")
+            if not silent:
+                messagebox.showerror("Ralat CSV", f"Gagal membaca CSV menggunakan {selected_encoding}:\n{str(e)}")
+            return False
+
+    # ============================================================
+    # TETAPAN APLIKASI TERSIMPAN (folder gambar & fail CSV terakhir)
+    # ============================================================
+    def restore_app_settings(self):
+        if not os.path.exists(self.app_settings_filename):
+            return
+        try:
+            with open(self.app_settings_filename, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            return
+
+        folder = data.get("photo_folder", "")
+        if folder and os.path.isdir(folder):
+            self.photo_folder = folder
+            self.lbl_folder.configure(text=f"Folder: {self.photo_folder}", text_color=COLOR_SUCCESS)
+
+        enc = data.get("csv_encoding", "")
+        if enc:
+            self.cbo_encoding.set(enc)
+
+        csv_path = data.get("csv_path", "")
+        if csv_path and os.path.exists(csv_path):
+            self._load_csv_from_path(csv_path, silent=True)
+
+    def save_app_settings(self):
+        data = {
+            "photo_folder": self.photo_folder,
+            "csv_path": self.last_csv_path,
+            "csv_encoding": self.cbo_encoding.get(),
+        }
+        try:
+            with open(self.app_settings_filename, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=4)
+        except Exception:
+            pass
 
     def refresh_treeview(self, filter_text=""):
         self.tree.delete(*self.tree.get_children())
