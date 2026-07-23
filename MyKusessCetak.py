@@ -130,7 +130,7 @@ class CardPrinterApp(ctk.CTk):
         title_box = ctk.CTkFrame(left, fg_color="transparent")
         title_box.pack(side="left")
         ctk.CTkLabel(title_box, text="MyKUSESS Studio", font=ctk.CTkFont(family=FONT_FAMILY, size=18, weight="bold"), text_color="#FFFFFF").pack(anchor="w")
-        ctk.CTkLabel(title_box, text="Sistem Cetakan Kad Pengenalan", font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color="#94A3B8").pack(anchor="w")
+        ctk.CTkLabel(title_box, text="Sistem Cetakan Kad MyKusess", font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color="#94A3B8").pack(anchor="w")
 
         right = ctk.CTkFrame(header, fg_color="transparent")
         right.pack(side="right", padx=20, pady=8)
