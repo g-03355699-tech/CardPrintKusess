@@ -11,6 +11,7 @@ Aplikasi desktop (Windows, Python + CustomTkinter) untuk menjana dan mencetak ka
 - **Edit Nama Penuh terus dalam senarai (Cetak Pukal)** — dwi-klik pada lajur "Nama Penuh" untuk sunting nama murid/guru (berguna apabila nama terlalu panjang untuk muat pada kad); pratonton kad dikemas kini serta-merta selepas disunting.
 - **Dialog edit teks lebih besar** — medan input semasa sunting Nama Penuh atau menamakan slot templat kini menggunakan dialog tersendiri bergaya app dengan medan teks jauh lebih lebar, menggantikan dialog Tk lalai yang terlalu kecil.
 - **Header "Senarai Murid" dipendekkan** — tajuk seksyen kini dipecahkan kepada dua baris (tajuk utama + arahan bersaiz font kecil di bawah) supaya tidak terlalu panjang.
+- **Edit / kosongkan Email MOE dalam senarai (Cetak Pukal)** — dwi-klik pada lajur "Email MOE" untuk sunting atau kosongkan medan tersebut bagi murid yang tiada Email MOE; baris yang dikosongkan dipaparkan sebagai "(Tiada Email)" dalam senarai, dan medan tersebut tidak dicetak pada kad.
 
 ## v1.02 — Nota Keluaran
 

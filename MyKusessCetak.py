@@ -292,7 +292,7 @@ class CardPrinterApp(ctk.CTk):
         self.ent_search.bind("<KeyRelease>", self.filter_search)
         self.btn_secondary(search_frame, "Kosongkan", self.clear_search, width=90, height=32).pack(side="left", padx=5)
 
-        self.section_header(pad, "2", "Senarai Murid", subtitle="(Klik untuk tanda/pilih & Preview; Dwi-klik Nama Penuh untuk edit)")
+        self.section_header(pad, "2", "Senarai Murid", subtitle="(Klik untuk tanda/pilih & Preview; Dwi-klik Nama Penuh/Email MOE untuk edit)")
 
         selection_btn_frame = ctk.CTkFrame(pad, fg_color="transparent")
         selection_btn_frame.pack(fill="x", pady=(0, 5))
@@ -805,7 +805,10 @@ class CardPrinterApp(ctk.CTk):
 
             pilih_symbol = "✅" if row['pilih'] else "⬜"
             row_tag = "row_on" if row['pilih'] else "row_off"
-            self.tree.insert("", tk.END, values=(pilih_symbol, row['kod_qr'], row['batch'], row['nama_penuh'], row['email_moe']), tags=(row_tag,))
+            # Papar penanda jelas apabila Email MOE sengaja dikosongkan (murid tiada email),
+            # supaya senarai tidak kelihatan seperti data hilang/tertinggal.
+            email_display = row['email_moe'] if row['email_moe'] else "(Tiada Email)"
+            self.tree.insert("", tk.END, values=(pilih_symbol, row['kod_qr'], row['batch'], row['nama_penuh'], email_display), tags=(row_tag,))
 
     def filter_search(self, event):
         query = self.ent_search.get()
@@ -859,13 +862,14 @@ class CardPrinterApp(ctk.CTk):
             self.btn_global_print.configure(state="disabled")
 
     def on_tree_double_click(self, event):
-        # Dwi-klik pada lajur "Nama Penuh" (#4) membolehkan pengguna sunting
-        # nama secara terus - berguna apabila nama terlalu panjang untuk muat pada kad.
+        # Dwi-klik pada lajur "Nama Penuh" (#4) atau "Email MOE" (#5) membolehkan
+        # pengguna sunting terus - cth. memendekkan nama panjang, atau mengosongkan
+        # Email MOE murid yang tiada emel (kosongkan medan = tiada emel dicetak pada kad).
         region = self.tree.identify("region", event.x, event.y)
         if region != "cell": return
 
         column = self.tree.identify_column(event.x)
-        if column != "#4": return
+        if column not in ("#4", "#5"): return
 
         selected_item = self.tree.focus()
         if not selected_item: return
@@ -875,14 +879,19 @@ class CardPrinterApp(ctk.CTk):
         record = next((r for r in self.csv_data if r['kod_qr'] == kod_qr_val), None)
         if not record: return
 
-        new_name = self.ask_text_input("Edit Nama Penuh", "Nama Penuh:", record['nama_penuh'])
-        if new_name is None: return
-        new_name = new_name.strip()
-        if not new_name:
+        if column == "#4":
+            field, title, label = "nama_penuh", "Edit Nama Penuh", "Nama Penuh:"
+        else:
+            field, title, label = "email_moe", "Edit Email MOE", "Email MOE (kosongkan jika murid tiada Email MOE):"
+
+        new_val = self.ask_text_input(title, label, record[field])
+        if new_val is None: return
+        new_val = new_val.strip()
+        if field == "nama_penuh" and not new_val:
             messagebox.showwarning("Ralat", "Nama tidak boleh kosong.")
             return
 
-        record['nama_penuh'] = new_name
+        record[field] = new_val
         self.refresh_treeview(self.ent_search.get())
 
         try:
