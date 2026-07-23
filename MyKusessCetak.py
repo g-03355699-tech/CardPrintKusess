@@ -286,7 +286,7 @@ class CardPrinterApp(ctk.CTk):
         self.ent_search.bind("<KeyRelease>", self.filter_search)
         self.btn_secondary(search_frame, "Kosongkan", self.clear_search, width=90, height=32).pack(side="left", padx=5)
 
-        self.section_header(pad, "2", "Senarai Murid (Klik untuk tanda/pilih & Preview)")
+        self.section_header(pad, "2", "Senarai Murid (Klik untuk tanda/pilih & Preview; Dwi-klik Nama Penuh untuk edit)")
 
         selection_btn_frame = ctk.CTkFrame(pad, fg_color="transparent")
         selection_btn_frame.pack(fill="x", pady=(0, 5))
@@ -318,6 +318,7 @@ class CardPrinterApp(ctk.CTk):
         self.tree.tag_configure("row_off", background=COLOR_SURFACE)
 
         self.tree.bind("<ButtonRelease-1>", self.on_tree_click)
+        self.tree.bind("<Double-1>", self.on_tree_double_click)
 
         self.progress_frame = ctk.CTkFrame(pad, fg_color="transparent")
         self.progress_frame.pack(fill="x", pady=10)
@@ -799,6 +800,40 @@ class CardPrinterApp(ctk.CTk):
             self.refresh_treeview(self.ent_search.get())
 
         # Tunjuk preview kad secara automatik apabila baris disentuh
+        try:
+            card = self.make_card_image(record['kod_qr'], record['batch'], record['nama_penuh'], record['email_moe'], record['fail_gambar'], is_batch=True)
+            self.update_preview_ui(card)
+        except Exception as e:
+            self.lbl_preview.configure(image="", text=f"Gagal Preview:\n{str(e)}", text_color=COLOR_DANGER)
+            self.btn_global_print.configure(state="disabled")
+
+    def on_tree_double_click(self, event):
+        # Dwi-klik pada lajur "Nama Penuh" (#4) membolehkan pengguna sunting
+        # nama secara terus - berguna apabila nama terlalu panjang untuk muat pada kad.
+        region = self.tree.identify("region", event.x, event.y)
+        if region != "cell": return
+
+        column = self.tree.identify_column(event.x)
+        if column != "#4": return
+
+        selected_item = self.tree.focus()
+        if not selected_item: return
+
+        values = self.tree.item(selected_item, "values")
+        kod_qr_val = values[1]
+        record = next((r for r in self.csv_data if r['kod_qr'] == kod_qr_val), None)
+        if not record: return
+
+        new_name = simpledialog.askstring("Edit Nama Penuh", "Nama Penuh:", initialvalue=record['nama_penuh'])
+        if new_name is None: return
+        new_name = new_name.strip()
+        if not new_name:
+            messagebox.showwarning("Ralat", "Nama tidak boleh kosong.")
+            return
+
+        record['nama_penuh'] = new_name
+        self.refresh_treeview(self.ent_search.get())
+
         try:
             card = self.make_card_image(record['kod_qr'], record['batch'], record['nama_penuh'], record['email_moe'], record['fail_gambar'], is_batch=True)
             self.update_preview_ui(card)
