@@ -16,6 +16,10 @@ from PIL import ImageWin
 
 APP_VERSION = "v1.03"
 
+# Saiz fizikal kad ID standard (CR-80): 86mm x 54mm.
+CARD_WIDTH_MM = 86
+CARD_HEIGHT_MM = 54
+
 # ============================================================
 #  TEMA & GAYA — reka bentuk profesional seakan Badgy Studio
 # ============================================================
@@ -1091,15 +1095,25 @@ class CardPrinterApp(ctk.CTk):
             hdc.StartDoc("Batch Cetak MyKUSESS")
             hdc.StartPage()
             with Image.open(filename) as bmp:
-                src_w, src_h = bmp.size
-                # Kira petak sasaran mengikut kawasan boleh cetak sebenar
-                # pencetak (bukan andaian 1013x638px tetap) supaya nisbah
-                # aspek kad dikekalkan dan tidak diregangkan (stretched).
-                page_w = hdc.GetDeviceCaps(win32con.HORZRES)
-                page_h = hdc.GetDeviceCaps(win32con.VERTRES)
-                scale = min(page_w / src_w, page_h / src_h)
-                dest_w, dest_h = int(src_w * scale), int(src_h * scale)
-                offset_x, offset_y = (page_w - dest_w) // 2, (page_h - dest_h) // 2
+                # Kad ialah 86mm x 54mm tetap. Kira petak sasaran daripada
+                # saiz fizikal sebenar (bukan nisbah piksel HORZRES/VERTRES,
+                # yang boleh mengelirukan sekiranya DPI mendatar != menegak
+                # pada pencetak kad — puncanya kad tertarik/stretch menegak).
+                dpi_x = hdc.GetDeviceCaps(win32con.LOGPIXELSX) or 300
+                dpi_y = hdc.GetDeviceCaps(win32con.LOGPIXELSY) or 300
+                dest_w = round(CARD_WIDTH_MM / 25.4 * dpi_x)
+                dest_h = round(CARD_HEIGHT_MM / 25.4 * dpi_y)
+
+                # Lukis relatif kepada keseluruhan halaman fizikal (bukan
+                # sekadar kawasan "boleh cetak" HORZRES/VERTRES, yang pada
+                # kebanyakan pencetak kad ID lebih kecil daripada kad
+                # sebenar) supaya rekaan sampai ke tepi kad dan tidak
+                # meninggalkan jidar putih tidak tercetak.
+                page_w = hdc.GetDeviceCaps(win32con.PHYSICALWIDTH) or hdc.GetDeviceCaps(win32con.HORZRES)
+                page_h = hdc.GetDeviceCaps(win32con.PHYSICALHEIGHT) or hdc.GetDeviceCaps(win32con.VERTRES)
+                offset_x = -hdc.GetDeviceCaps(win32con.PHYSICALOFFSETX) + (page_w - dest_w) // 2
+                offset_y = -hdc.GetDeviceCaps(win32con.PHYSICALOFFSETY) + (page_h - dest_h) // 2
+
                 dib = ImageWin.Dib(bmp)
                 dib.draw(hdc.GetHandleOutput(), (offset_x, offset_y, offset_x + dest_w, offset_y + dest_h))
             hdc.EndPage()
