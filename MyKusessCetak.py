@@ -14,7 +14,7 @@ import win32ui
 import win32con
 from PIL import ImageWin
 
-APP_VERSION = "v1.03"
+APP_VERSION = "v1.04"
 
 # Saiz fizikal kad ID standard (CR-80): 86mm x 54mm.
 CARD_WIDTH_MM = 86

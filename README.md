@@ -1,6 +1,10 @@
-# MyKUSESS Studio v1.03
+# MyKUSESS Studio v1.04
 
 Aplikasi desktop (Windows, Python + CustomTkinter) untuk menjana dan mencetak kad pengenalan (ID card) guru/murid MyKUSESS, lengkap dengan gambar, kod QR unik, dan maklumat individu. Menyokong cetakan satu-satu atau pukal (batch) daripada fail CSV.
+
+## v1.04 — Nota Keluaran
+
+- **Pembetulan cetakan kad tidak penuh & tertarik menegak** — kad ID CR-80 (86mm x 54mm) mempunyai DPI mendatar/menegak yang berbeza pada kebanyakan pencetak kad, jadi mengekalkan nisbah aspek daripada piksel kawasan boleh cetak sahaja (`HORZRES`/`VERTRES`) masih boleh meregangkan imej secara menegak. Saiz sasaran kini dikira terus daripada saiz fizikal kad menggunakan `LOGPIXELSX`/`LOGPIXELSY` berasingan bagi setiap paksi, dan dilukis relatif kepada keseluruhan halaman fizikal pencetak (`PHYSICALWIDTH`/`HEIGHT` + `PHYSICALOFFSET`) supaya rekaan sampai ke tepi kad tanpa jidar putih tidak tercetak. Pembetulan ini terpakai pada cetakan satu-satu dan pukal.
 
 ## v1.03 — Nota Keluaran
 
