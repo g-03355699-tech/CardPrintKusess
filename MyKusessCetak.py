@@ -16,7 +16,7 @@ import win32ui
 import win32con
 from PIL import ImageWin
 
-APP_VERSION = "v1.05"
+APP_VERSION = "v1.06"
 
 # ============================================================
 #  TEMA & GAYA — reka bentuk profesional seakan Badgy Studio
@@ -316,7 +316,10 @@ class CardPrinterApp(ctk.CTk):
         style.configure("Treeview.Heading", font=(FONT_FAMILY, 9, "bold"), background=COLOR_SURFACE_ALT, foreground=COLOR_TEXT, relief="flat")
         style.map("Treeview", background=[("selected", COLOR_ACCENT)], foreground=[("selected", "#FFFFFF")])
 
-        self.tree = ttk.Treeview(pad, columns=("Pilih", "QR", "Batch", "Penuh", "Email"), show="headings", height=8)
+        tree_frame = ctk.CTkFrame(pad, fg_color="transparent")
+        tree_frame.pack(fill="both", expand=True, pady=5)
+
+        self.tree = ttk.Treeview(tree_frame, columns=("Pilih", "QR", "Batch", "Penuh", "Email"), show="headings", height=8)
         self.tree.heading("Pilih", text="Tanda")
         self.tree.heading("QR", text="Kod QR")
         self.tree.heading("Batch", text="Batch")
@@ -327,7 +330,14 @@ class CardPrinterApp(ctk.CTk):
         self.tree.column("Batch", width=90)
         self.tree.column("Penuh", width=200)
         self.tree.column("Email", width=180)
-        self.tree.pack(fill="both", expand=True, pady=5)
+
+        # Slider skrol menegak di sebelah senarai supaya senarai panjang (ratusan
+        # rekod CSV) boleh diskrol pantas dengan menyeret, bukan sekadar roda tetikus.
+        tree_scroll = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=tree_scroll.set)
+
+        self.tree.pack(side="left", fill="both", expand=True)
+        tree_scroll.pack(side="right", fill="y")
 
         # Warna latar baris mengikut status tanda — hijau lembut bila dipilih,
         # supaya senarai mudah dibaca sekali pandang (bukan sekadar simbol teks).
