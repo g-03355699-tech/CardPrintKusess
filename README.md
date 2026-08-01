@@ -1,6 +1,15 @@
-# MyKUSESS Studio v1.04
+# MyKUSESS Studio v1.05
 
 Aplikasi desktop (Windows, Python + CustomTkinter) untuk menjana dan mencetak kad pengenalan (ID card) guru/murid MyKUSESS, lengkap dengan gambar, kod QR unik, dan maklumat individu. Menyokong cetakan satu-satu atau pukal (batch) daripada fail CSV.
+
+## v1.05 — Nota Keluaran
+
+- **Import terus CSV mentah "Sistem Outing dan Pulang Bermalam"** — pengguna tidak lagi perlu susun semula lajur secara manual; apabila lajur `IDmykusess` dikesan (tanpa `kod_qr`), aplikasi memetakan skema mentah terus (`IDmykusess`→Kod QR, `Nama`→Nama Penuh, `Emel`→Email MOE, `GambarID`→fail gambar) secara automatik semasa "Muat Naik CSV".
+- **Medan baharu "Tahun Kemasukan Tingkatan 1"** (tab Cetak Pukal) — mengira lajur Batch bagi CSV mentah terus daripada Tahap/Tgkt murid (cth. Tahun Kemasukan = 2026 → Tingkatan 1 = "BATCH 26-30", Tingkatan 2 = "BATCH 25-29", dst.); disimpan automatik dan hanya perlu dikemaskini sekali setiap tahun.
+- **Preview/cetak tidak lagi gagal apabila fail gambar tiada** — jika foto seorang murid/guru tiada dalam folder gambar dipilih, kad tetap dijana (QR, Batch, Nama, Email) dengan ruang foto dibiarkan kosong, bukannya ralat "Gagal Preview" yang menghalang seluruh operasi.
+- **Auto-crop foto bukan nisbah 1:1** — foto potret menegak (cth. swafoto telefon) kini dipotong tengah menegak secara automatik supaya menjadi segi empat sama (mengekalkan lebar asal) sebelum dimuatkan ke petak gambar kad, menghalang foto melimpah menindih teks Nama di bawahnya.
+- **Pembetulan lanjutan jidar putih tidak tercetak** — sambungan pembetulan v1.04: petak cetakan kini mengisi penuh keseluruhan halaman fizikal pencetak (`PHYSICALWIDTH`/`HEIGHT`) tanpa mengira semula saiz sasaran secara berasingan daripada mm/DPI, menghapuskan baki jidar putih ~1-2mm di tepi kad akibat pembundaran (rounding) yang masih berlaku selepas pembetulan v1.04.
+- Nama aplikasi pada bar header & tajuk tetingkap dikemas kini kepada **"MyKUSESS Studio Card Print"**.
 
 ## v1.04 — Nota Keluaran
 
@@ -38,7 +47,7 @@ Selain penyatuan itu, v1.00 turut membawa:
 ## Ciri-ciri Utama
 
 - **Cetak Satu-Satu** — masukkan maklumat individu secara manual dan jana kad terus.
-- **Cetak Pukal (CSV)** — muat naik senarai murid/guru dari CSV + folder gambar, cari/tapis, tanda rekod yang mahu dicetak, cetak semua sekali gus.
+- **Cetak Pukal (CSV)** — muat naik senarai murid/guru dari CSV + folder gambar, cari/tapis, tanda rekod yang mahu dicetak, cetak semua sekali gus. Menyokong skema CSV rasmi aplikasi mahupun eksport mentah "Sistem Outing dan Pulang Bermalam" terus tanpa penyusunan semula lajur.
 - **Konfigurasi Layout** — laraskan kedudukan, saiz, font (bold/italic/justify) bagi gambar, QR code, dan setiap medan teks pada kad; boleh disimpan/dimuat semula (`layout_config.json`).
 - **Kod QR** — dijana automatik dengan prefix `mykusses:` merujuk kod unik setiap individu (tidak berganda walaupun kod dari CSV sudah mengandungi prefix tersebut).
 - **Muat Turun** — simpan kad sebagai PNG, atau jana PDF pukal bagi semua rekod bertanda.
@@ -80,6 +89,8 @@ Output akan berada dalam folder `dist/`.
 
 ## Format CSV
 
+Skema rasmi aplikasi:
+
 ```
 kod_qr,batch,nama_penuh,email_moe,fail_gambar
 mykusses:tnf4042,Batch 26-30,MUHAMMAD HARITH BIN MUHD AZIB,contoh@moe-dl.edu.my,Users_Images/nama_fail.png
@@ -87,6 +98,8 @@ mykusses:tnf4042,Batch 26-30,MUHAMMAD HARITH BIN MUHD AZIB,contoh@moe-dl.edu.my,
 
 `fail_gambar` adalah path relatif kepada folder gambar yang dipilih dalam aplikasi (biasanya folder ibu bapa yang mengandungi `Users_Images/`).
 
+Eksport mentah "Sistem Outing dan Pulang Bermalam" (lajur `GambarID,Nama,Tahap/Tgkt,Kelas,...,Emel,IDapdm,IDmykusess,QRmykusess`) turut boleh dimuat naik terus tanpa penyusunan semula lajur — dikesan automatik melalui lajur `IDmykusess` dan dipetakan kepada skema rasmi di atas (lihat medan "Tahun Kemasukan Tingkatan 1" pada tab Cetak Pukal untuk kawal pengiraan lajur Batch).
+
 ## Nota
 
-- Fail `Eksport_APDM_*.csv` dan `Users_Images/` mengandungi data peribadi (nama, emel, foto) — tidak ditrack dalam git (`.gitignore`); pastikan tidak dikongsi/dipush ke repositori awam tanpa kebenaran.
+- Fail `Eksport_APDM_*.csv`, `Sistem Outing dan Pulang Bermalam - Users.csv`, dan `Users_Images/` mengandungi data peribadi (nama, emel, foto) — tidak ditrack dalam git (`.gitignore`); pastikan tidak dikongsi/dipush ke repositori awam tanpa kebenaran.

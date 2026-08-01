@@ -2,8 +2,10 @@ import os
 import csv
 import json
 import sys
+import re
 import random
 import string
+import datetime
 import tkinter as tk
 import customtkinter as ctk
 from tkinter import filedialog, messagebox, ttk
@@ -14,11 +16,7 @@ import win32ui
 import win32con
 from PIL import ImageWin
 
-APP_VERSION = "v1.04"
-
-# Saiz fizikal kad ID standard (CR-80): 86mm x 54mm.
-CARD_WIDTH_MM = 86
-CARD_HEIGHT_MM = 54
+APP_VERSION = "v1.05"
 
 # ============================================================
 #  TEMA & GAYA — reka bentuk profesional seakan Badgy Studio
@@ -49,7 +47,7 @@ class CardPrinterApp(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        self.title(f"MyKUSESS Studio {APP_VERSION} — Sistem Cetakan Kad Pintar")
+        self.title(f"MyKUSESS Studio Card Print {APP_VERSION} — Sistem Cetakan Kad Pintar")
         self.geometry("1400x900")
         self.configure(fg_color=COLOR_BG)
 
@@ -149,7 +147,7 @@ class CardPrinterApp(ctk.CTk):
 
         title_box = ctk.CTkFrame(left, fg_color="transparent")
         title_box.pack(side="left")
-        ctk.CTkLabel(title_box, text="MyKUSESS Studio", font=ctk.CTkFont(family=FONT_FAMILY, size=18, weight="bold"), text_color="#FFFFFF").pack(anchor="w")
+        ctk.CTkLabel(title_box, text="MyKUSESS Studio Card Print", font=ctk.CTkFont(family=FONT_FAMILY, size=18, weight="bold"), text_color="#FFFFFF").pack(anchor="w")
         ctk.CTkLabel(title_box, text="Sistem Cetakan Kad MyKusess", font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color="#94A3B8").pack(anchor="w")
 
         right = ctk.CTkFrame(header, fg_color="transparent")
@@ -287,6 +285,15 @@ class CardPrinterApp(ctk.CTk):
         self.btn_primary(setting_frame, "⬆  Muat Naik CSV", self.load_csv, width=180, height=34).grid(row=2, column=0, padx=10, pady=10)
         self.lbl_csv = self.status_label(setting_frame, "CSV: Tiada fail dipilih")
         self.lbl_csv.grid(row=2, column=1, padx=5, pady=10, sticky="w")
+
+        self.field_label(setting_frame, "Tahun Kemasukan Tingkatan 1").grid(row=3, column=0, padx=10, pady=5, sticky="e")
+        intake_frame = ctk.CTkFrame(setting_frame, fg_color="transparent")
+        intake_frame.grid(row=3, column=1, padx=5, pady=5, sticky="w")
+        self.ent_intake_year_t1 = ctk.CTkEntry(intake_frame, width=80, height=30, border_color=COLOR_BORDER)
+        self.ent_intake_year_t1.insert(0, str(datetime.date.today().year))
+        self.ent_intake_year_t1.pack(side="left")
+        self.ent_intake_year_t1.bind("<FocusOut>", lambda _e: self.save_app_settings())
+        self.status_label(intake_frame, "  (untuk kira lajur Batch daripada Tahap/Tgkt bagi CSV mentah)").pack(side="left")
 
         search_frame = ctk.CTkFrame(pad, fg_color="transparent")
         search_frame.pack(fill="x", pady=(14, 5))
@@ -727,6 +734,52 @@ class CardPrinterApp(ctk.CTk):
         if self._load_csv_from_path(csv_path):
             self.save_app_settings()
 
+    # Lajur skema mentah eksport "Sistem Outing dan Pulang Bermalam" (GambarID, Nama,
+    # Tahap/Tgkt, Kelas, ..., Emel, IDmykusess, ...) -> lajur skema dalaman aplikasi.
+    # Pengguna hanya perlu import CSV mentah terus tanpa perlu susun semula lajur sendiri.
+    RAW_SCHEMA_MARKER_COLUMN = "IDmykusess"
+
+    def _normalize_csv_row(self, row, is_raw_schema):
+        if not is_raw_schema:
+            return {
+                'kod_qr': row.get('kod_qr', ''),
+                'batch': row.get('batch', ''),
+                'nama_penuh': row.get('nama_penuh', ''),
+                'email_moe': row.get('email_moe', ''),
+                'fail_gambar': row.get('fail_gambar', '')
+            }
+
+        tahap = (row.get('Tahap/Tgkt') or '').strip()
+        kelas = (row.get('Kelas') or '').strip()
+        email = (row.get('Emel') or '').strip()
+        if email.lower() == 'not_found@missing.my':
+            email = ''  # placeholder eksport bagi murid/guru tiada Email MOE
+        return {
+            'kod_qr': (row.get('IDmykusess') or '').strip(),
+            'batch': self._tahap_to_batch_label(tahap) or f"{tahap} {kelas}".strip(),
+            'nama_penuh': (row.get('Nama') or '').strip(),
+            'email_moe': email,
+            'fail_gambar': (row.get('GambarID') or '').strip()
+        }
+
+    def _tahap_to_batch_label(self, tahap):
+        # Label Batch murid mengikut kohort kemasukan Tingkatan 1, bukan tahap semasa:
+        # cth. tahun kemasukan T1=2026 -> T1="BATCH 26-30", T2="BATCH 25-29" (masuk 2025,
+        # tamat 2029), dst. Balik None jika Tahap/Tgkt tidak berformat "T<nombor>" atau
+        # medan "Tahun Kemasukan Tingkatan 1" tidak diisi/tidak sah, supaya pemanggil boleh
+        # gunakan gantian (fallback) selamat.
+        match = re.fullmatch(r'T(\d+)', tahap, flags=re.IGNORECASE)
+        if not match:
+            return None
+        try:
+            t1_intake_year = int(self.ent_intake_year_t1.get().strip())
+        except (ValueError, AttributeError):
+            return None
+
+        tahap_num = int(match.group(1))
+        intake_year = t1_intake_year - (tahap_num - 1)
+        return f"BATCH {intake_year % 100:02d}-{(intake_year + 4) % 100:02d}"
+
     def _load_csv_from_path(self, csv_path, silent=False):
         # Pengekodan CSV mengikut pilihan pengguna
         enc_option = self.cbo_encoding.get()
@@ -741,16 +794,11 @@ class CardPrinterApp(ctk.CTk):
         try:
             with open(csv_path, mode='r', encoding=selected_encoding) as f:
                 reader = csv.DictReader(f)
+                fieldnames = reader.fieldnames or []
+                is_raw_schema = 'kod_qr' not in fieldnames and self.RAW_SCHEMA_MARKER_COLUMN in fieldnames
                 for row in reader:
-                    # Setiap rekod lalai mempunyai 'pilih': True (ditanda)
-                    row_data = {
-                        'pilih': True,
-                        'kod_qr': row.get('kod_qr', ''),
-                        'batch': row.get('batch', ''),
-                        'nama_penuh': row.get('nama_penuh', ''),
-                        'email_moe': row.get('email_moe', ''),
-                        'fail_gambar': row.get('fail_gambar', '')
-                    }
+                    row_data = self._normalize_csv_row(row, is_raw_schema)
+                    row_data['pilih'] = True  # Setiap rekod lalai ditanda
                     self.csv_data.append(row_data)
             self.refresh_treeview()
             self.lbl_csv.configure(text=f"CSV: {os.path.basename(csv_path)} ({len(self.csv_data)} rekod)", text_color=COLOR_SUCCESS)
@@ -782,6 +830,11 @@ class CardPrinterApp(ctk.CTk):
         if enc:
             self.cbo_encoding.set(enc)
 
+        intake_year_t1 = data.get("intake_year_t1", "")
+        if intake_year_t1:
+            self.ent_intake_year_t1.delete(0, tk.END)
+            self.ent_intake_year_t1.insert(0, intake_year_t1)
+
         csv_path = data.get("csv_path", "")
         if csv_path and os.path.exists(csv_path):
             self._load_csv_from_path(csv_path, silent=True)
@@ -791,6 +844,7 @@ class CardPrinterApp(ctk.CTk):
             "photo_folder": self.photo_folder,
             "csv_path": self.last_csv_path,
             "csv_encoding": self.cbo_encoding.get(),
+            "intake_year_t1": self.ent_intake_year_t1.get().strip(),
         }
         try:
             with open(self.app_settings_filename, "w", encoding="utf-8") as f:
@@ -917,10 +971,20 @@ class CardPrinterApp(ctk.CTk):
         selected = font_map.get(base_font, font_map["arial.ttf"])
         return selected["bi"] if bold and italic else selected["b"] if bold else selected["i"] if italic else selected["r"]
 
+    def crop_to_square_keep_width(self, img):
+        # Sesetengah foto murid/guru bukan nisbah 1:1 (cth. potret menegak) — dipotong
+        # (crop) tengah menegak supaya tinggi menyamai lebar asal, supaya foto sentiasa
+        # persegi dan tidak melimpah menutup teks nama di bawahnya semasa preview/cetak.
+        w, h = img.size
+        if h <= w:
+            return img
+        top = (h - w) // 2
+        return img.crop((0, top, w, top + w))
+
     def make_card_image(self, qr_code, batch, full_name, email_moe, photo_filename, is_batch=False):
         if not self.bg_path: raise Exception("Sila pilih gambar Template Kad terlebih dahulu!")
         p_path = photo_filename if not is_batch else os.path.join(self.photo_folder, photo_filename)
-        if not os.path.exists(p_path): raise Exception(f"Fail gambar tidak ditemui: {os.path.basename(p_path)}")
+        has_photo = bool(photo_filename) and os.path.exists(p_path)
 
         img_x, img_y = int(self.cfg_img_x.get()), int(self.cfg_img_y.get())
         img_w, img_h = int(self.cfg_img_w.get()), int(self.cfg_img_h.get())
@@ -934,10 +998,12 @@ class CardPrinterApp(ctk.CTk):
         n3_fs = int(self.cfg_n3_font.get())
 
         card = Image.open(self.bg_path).convert('RGBA').resize((1013, 638))
-        raw_photo = Image.open(p_path).convert('RGBA')
-        teacher_img = ImageOps.contain(raw_photo, (img_w, img_h))
-        actual_w, actual_h = teacher_img.size
-        card.paste(teacher_img, (img_x + (img_w - actual_w) // 2, img_y + (img_h - actual_h) // 2), teacher_img)
+        if has_photo:
+            raw_photo = Image.open(p_path).convert('RGBA')
+            square_photo = self.crop_to_square_keep_width(raw_photo)
+            teacher_img = ImageOps.contain(square_photo, (img_w, img_h))
+            actual_w, actual_h = teacher_img.size
+            card.paste(teacher_img, (img_x + (img_w - actual_w) // 2, img_y + (img_h - actual_h) // 2), teacher_img)
 
         clean_code = qr_code.strip().lower()
         if clean_code.startswith("mykusses:"):
@@ -1095,27 +1161,23 @@ class CardPrinterApp(ctk.CTk):
             hdc.StartDoc("Batch Cetak MyKUSESS")
             hdc.StartPage()
             with Image.open(filename) as bmp:
-                # Kad ialah 86mm x 54mm tetap. Kira petak sasaran daripada
-                # saiz fizikal sebenar (bukan nisbah piksel HORZRES/VERTRES,
-                # yang boleh mengelirukan sekiranya DPI mendatar != menegak
-                # pada pencetak kad — puncanya kad tertarik/stretch menegak).
-                dpi_x = hdc.GetDeviceCaps(win32con.LOGPIXELSX) or 300
-                dpi_y = hdc.GetDeviceCaps(win32con.LOGPIXELSY) or 300
-                dest_w = round(CARD_WIDTH_MM / 25.4 * dpi_x)
-                dest_h = round(CARD_HEIGHT_MM / 25.4 * dpi_y)
-
-                # Lukis relatif kepada keseluruhan halaman fizikal (bukan
-                # sekadar kawasan "boleh cetak" HORZRES/VERTRES, yang pada
-                # kebanyakan pencetak kad ID lebih kecil daripada kad
-                # sebenar) supaya rekaan sampai ke tepi kad dan tidak
-                # meninggalkan jidar putih tidak tercetak.
+                # Kad ID (86mm x 54mm) menyamai keseluruhan "halaman" fizikal pada
+                # pencetak kad — tiada kertas/margin tambahan di luar kad itu sendiri.
+                # Lukis terus merentasi PHYSICALWIDTH/HEIGHT sebenar (bukan kira semula
+                # saiz sasaran daripada mm x DPI dan "centering" ke tengah halaman):
+                # percubaan sebelum ini mengira dest_w/h berasingan daripada mm/DPI
+                # meninggalkan jidar putih ~1-2mm di satu sisi apabila hasil bulatan
+                # (rounding) itu tidak tepat menyamai saiz sebenar yang dilaporkan
+                # pencetak. Menggunakan PHYSICALWIDTH/HEIGHT terus (dikira pencetak
+                # sendiri mengikut DPI per-paksi) tetap mengekalkan nisbah aspek betul
+                # tanpa risiko regangan (stretch) — cf. bug "tertarik menegak" v1.00.
                 page_w = hdc.GetDeviceCaps(win32con.PHYSICALWIDTH) or hdc.GetDeviceCaps(win32con.HORZRES)
                 page_h = hdc.GetDeviceCaps(win32con.PHYSICALHEIGHT) or hdc.GetDeviceCaps(win32con.VERTRES)
-                offset_x = -hdc.GetDeviceCaps(win32con.PHYSICALOFFSETX) + (page_w - dest_w) // 2
-                offset_y = -hdc.GetDeviceCaps(win32con.PHYSICALOFFSETY) + (page_h - dest_h) // 2
+                offset_x = -hdc.GetDeviceCaps(win32con.PHYSICALOFFSETX)
+                offset_y = -hdc.GetDeviceCaps(win32con.PHYSICALOFFSETY)
 
                 dib = ImageWin.Dib(bmp)
-                dib.draw(hdc.GetHandleOutput(), (offset_x, offset_y, offset_x + dest_w, offset_y + dest_h))
+                dib.draw(hdc.GetHandleOutput(), (offset_x, offset_y, offset_x + page_w, offset_y + page_h))
             hdc.EndPage()
             hdc.EndDoc()
         finally:
