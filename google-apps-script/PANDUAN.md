@@ -35,6 +35,8 @@ Tekan **Simpan** (💾).
 2. Jika Google meminta kebenaran baharu (akses Drive untuk membaca foto): pilih akaun anda → **Advanced** → **Go to ... (unsafe)** → **Allow**.
 3. Buka **Execution log** dan salin kunci yang dipaparkan.
 
+Kemudian pilih fungsi **`semakAksesFoto`** dan tekan **Run**. Luluskan kebenaran Google Drive jika diminta (**Advanced → Go to ... → Allow**). *Execution log* sepatutnya memaparkan *"Users_Images ditemui — akses foto OK"*. Tanpa langkah ini, senarai murid boleh dimuat tetapi foto gagal dengan ralat *"You do not have permission to call DriveApp"*.
+
 Jika kunci terdedah, jalankan `setupCardPrintKey` sekali lagi. Kunci lama terus tidak sah, kemudian kemas kini kunci dalam aplikasi.
 
 ## 4. Deploy versi baharu (URL kekal sama)
@@ -67,6 +69,7 @@ Tampal versi baharu ke fail `CardPrint`, kemudian **Deploy → Manage deployment
 |---|---|
 | *Web App memulangkan halaman web, bukan data* | Baris `cardprint` belum ditambah dalam `doGet`, atau versi baharu belum di-deploy (langkah 2 & 4). |
 | *Kunci rahsia (API Key) tidak sah* | Kunci salah salin atau telah dijana semula. Salin semula dari Execution log. |
+| *Foto gagal: You do not have permission to call DriveApp…* | Kebenaran Drive belum diluluskan. Tambah/kemas kini `CardPrint.gs`, jalankan `semakAksesFoto` dalam editor dan pilih **Allow**. |
 | *Kunci rahsia belum ditetapkan* | Langkah 3 belum dijalankan. |
 | *Google meminta log masuk* | Deployment bukan akses *Anyone*, atau URL bukan yang berakhir `/exec`. |
 | *Foto: N gagal (fail tidak dijumpai)* | Fail foto dalam lajur GambarID sudah dipadam atau dialih dalam Drive. Kad tetap boleh dicetak tanpa foto. |

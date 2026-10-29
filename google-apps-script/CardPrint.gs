@@ -40,6 +40,17 @@ function setupCardPrintKey() {
   Logger.log('Kunci rahsia CardPrint baharu (salin ke aplikasi > Tetapan Google Sheet): ' + key);
 }
 
+/**
+ * Jalankan SEKALI dari editor (pilih fungsi ini > Run) untuk memberi kebenaran
+ * membaca Google Drive (foto murid). Tanpa ini, permintaan foto gagal dengan
+ * "You do not have permission to call DriveApp.getFolderById".
+ */
+function semakAksesFoto() {
+  var root = DriveApp.getFolderById(CP_PHOTO_ROOT_FOLDER_ID);
+  var imgs = root.getFoldersByName('Users_Images');
+  Logger.log('Folder foto: ' + root.getName() + (imgs.hasNext() ? ' / Users_Images ditemui — akses foto OK' : ' (Users_Images TIDAK ditemui)'));
+}
+
 /** Dipanggil dari doGet sedia ada apabila parameter "cardprint" wujud. */
 function cardPrintHandle_(e) {
   try {
