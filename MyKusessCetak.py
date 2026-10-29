@@ -263,10 +263,12 @@ def cleanup_old_exe():
 
 
 # ============================================================
-#  GOOGLE SHEET (melalui Web App Apps Script — google-apps-script/Code.gs)
+#  GOOGLE SHEET (melalui Web App Apps Script — google-apps-script/CardPrint.gs)
 # ============================================================
+# Permintaan membawa parameter "cardprint" (bukan "action"/"api") supaya ia dihalakan
+# ke cardPrintHandle_() oleh doGet sedia ada tanpa bertembung dengan kiosk/ESP32.
 PHOTO_CACHE_DIR = "photo_cache"   # salinan tempatan foto dari Drive (data peribadi — gitignored)
-GSHEET_PHOTOS_PER_REQUEST = 4     # <= MAX_PHOTOS_PER_REQUEST dalam Code.gs
+GSHEET_PHOTOS_PER_REQUEST = 4     # <= CP_MAX_PHOTOS_PER_REQUEST dalam CardPrint.gs
 GSHEET_PARALLEL_REQUESTS = 6
 
 
@@ -275,7 +277,7 @@ class GSheetError(Exception):
 
 
 def gsheet_call(url, key, action, timeout=90, **params):
-    query = {"key": key, "action": action}
+    query = {"key": key, "cardprint": action}
     query.update(params)
     full_url = url.strip() + ("&" if "?" in url else "?") + urllib.parse.urlencode(query)
     req = urllib.request.Request(full_url, headers={"User-Agent": UPDATE_USER_AGENT})
@@ -289,9 +291,14 @@ def gsheet_call(url, key, action, timeout=90, **params):
     try:
         data = json.loads(raw.decode("utf-8"))
     except Exception:
-        # Biasanya halaman log masuk Google: Web App tidak dibuka kepada "Anyone"
-        raise GSheetError("Respons bukan data JSON. Pastikan Web App diterbitkan dengan akses "
-                          "'Anyone' (Sesiapa sahaja) dan URL berakhir dengan /exec.")
+        text = raw[:20000].decode("utf-8", "ignore").lower()
+        if "accounts.google.com" in text or "servicelogin" in text or "sign in" in text:
+            # Halaman log masuk Google: Web App tidak dibuka kepada "Anyone"
+            raise GSheetError("Google meminta log masuk. Pastikan Web App di-deploy dengan akses "
+                              "'Anyone' (Sesiapa sahaja) dan URL berakhir dengan /exec.")
+        # Halaman HTML lain (cth. halaman kiosk imbasan): doGet belum menghala ke CardPrint
+        raise GSheetError("Web App memulangkan halaman web, bukan data. Pastikan baris 'cardprint' telah "
+                          "ditambah di awal doGet dan versi baharu telah di-deploy (rujuk PANDUAN.md).")
     if not data.get("ok"):
         err = data.get("error") or "ralat tidak diketahui"
         if err == "unauthorized":
@@ -1518,8 +1525,8 @@ class CardPrinterApp(ctk.CTk):
         ctk.CTkLabel(head, text="", image=make_icon("sheet", COLOR_ACCENT, 22)).pack(side="left", padx=(0, 10))
         ctk.CTkLabel(head, text="Sambungan Google Sheet", font=ctk.CTkFont(family=FONT_FAMILY_SEMIBOLD, size=17),
                      text_color=COLOR_TEXT).pack(side="left")
-        self.hint_label(dialog, "Tampal URL Web App dan kunci rahsia daripada skrip Apps Script pada sheet "
-                                "'Sistem Outing dan Pulang Bermalam'. Rujuk google-apps-script/PANDUAN.md.",
+        self.hint_label(dialog, "Tampal URL Web App sedia ada (yang sama digunakan kiosk/ESP32) dan kunci rahsia "
+                                "daripada setupCardPrintKey(). Rujuk google-apps-script/PANDUAN.md.",
                         wraplength=550).pack(anchor="w", padx=24, pady=(8, 14))
 
         self.field_label(dialog, "URL Web App (berakhir dengan /exec)").pack(anchor="w", padx=24, pady=(0, 6))
@@ -1531,7 +1538,7 @@ class CardPrinterApp(ctk.CTk):
         self.field_label(dialog, "Kunci Rahsia (API Key)").pack(anchor="w", padx=24, pady=(14, 6))
         key_row = ctk.CTkFrame(dialog, fg_color="transparent")
         key_row.pack(fill="x", padx=24)
-        ent_key = self.text_entry(key_row, "Dijana oleh setupApiKey() dalam Apps Script", width=460)
+        ent_key = self.text_entry(key_row, "Dijana oleh setupCardPrintKey() dalam Apps Script", width=460)
         ent_key.configure(show="•")
         ent_key.pack(side="left", fill="x", expand=True)
         if self.gsheet_key:

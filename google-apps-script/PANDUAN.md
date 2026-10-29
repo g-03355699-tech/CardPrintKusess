@@ -1,61 +1,76 @@
 # Panduan: Sambung MyKUSESS Studio Card Print ke Google Sheet
 
-Aplikasi boleh memuat senarai murid terus dari Google Sheet **"Sistem Outing dan Pulang Bermalam"** (tab **Users**) dan memuat turun foto dari folder AppSheet di Google Drive. Sheet **tidak perlu dikongsi secara awam** — aplikasi berhubung melalui skrip kecil dengan kunci rahsia.
+Aplikasi boleh memuat senarai murid terus dari Google Sheet **"Sistem Outing dan Pulang Bermalam"** (tab **Users**) dan memuat turun foto dari folder AppSheet di Google Drive. Sheet **tidak perlu dikongsi secara awam**. Aplikasi berhubung melalui projek Apps Script **sedia ada** pada sheet itu, iaitu projek yang sama yang digunakan oleh kiosk imbasan dan ESP32, dan dilindungi kunci rahsia.
 
-Pemasangan dibuat **sekali sahaja** (±10 minit).
+Pemasangan dibuat **sekali sahaja** (±10 minit). **Kiosk imbasan dan ESP32 tidak terjejas**, dan URL Web App kekal sama.
 
-## 1. Pasang skrip pada sheet
+## 1. Tambah fail CardPrint.gs
 
-1. Buka Google Sheet **Sistem Outing dan Pulang Bermalam**.
-2. Menu **Extensions → Apps Script**.
-3. Padam kandungan `Code.gs` yang sedia ada, kemudian tampal seluruh kandungan fail [`Code.gs`](Code.gs) dari folder ini.
-4. Tekan ikon **Simpan** (💾).
+1. Buka Google Sheet **Sistem Outing dan Pulang Bermalam** → **Extensions → Apps Script**.
+2. Di panel kiri, tekan **＋** di sebelah *Files* → **Script** → namakan **`CardPrint`**.
+3. Tampal seluruh kandungan fail [`CardPrint.gs`](CardPrint.gs) ke dalam fail baharu itu.
+4. **Jangan ubah `Code.gs` selain langkah 2 di bawah.** `CardPrint.gs` sengaja tidak mempunyai `doGet` sendiri supaya tidak menindih `doGet` kiosk.
 
-> `PHOTO_ROOT_FOLDER_ID` dalam skrip sudah ditetapkan kepada folder app AppSheet `e-KusessAppsV2-4878841` (yang mengandungi `Users_Images`). Tukar hanya jika foto dipindahkan ke folder lain.
+> `CP_PHOTO_ROOT_FOLDER_ID` sudah ditetapkan kepada folder app AppSheet `e-KusessAppsV2-4878841` (yang mengandungi `Users_Images`). Tukar hanya jika foto dipindahkan ke folder lain.
 
-## 2. Jana kunci rahsia
+## 2. Tambah SATU baris dalam doGet sedia ada
 
-1. Dalam editor Apps Script, pilih fungsi **`setupApiKey`** pada dropdown di bar atas, tekan **Run**.
-2. Kali pertama, Google akan meminta kebenaran — pilih akaun anda → **Advanced** → **Go to ... (unsafe)** → **Allow**. (Skrip ini milik anda sendiri; amaran ini biasa bagi skrip yang belum disahkan Google.)
-3. Buka **Execution log** — salin kunci yang dipaparkan selepas `API_KEY baharu ...`.
+Dalam `Code.gs`, tambah baris bertanda `// CardPrint` sebagai baris **pertama** dalam `doGet`:
 
-Simpan kunci ini dengan selamat. Jika ia terdedah, jalankan `setupApiKey` sekali lagi untuk menjana kunci baharu (kunci lama terus tidak sah), kemudian kemas kini kunci dalam aplikasi.
+```javascript
+function doGet(e) {
+  if (e && e.parameter && e.parameter.cardprint) return cardPrintHandle_(e); // CardPrint
+  var api = (e && e.parameter && e.parameter.api) || '';
+  var action = (e && e.parameter && e.parameter.action) || '';
+  // ... selebihnya kekal sama ...
+```
 
-## 3. Terbitkan sebagai Web App
+Baris ini hanya bertindak apabila permintaan membawa parameter `cardprint`. Hanya aplikasi kad yang menghantar parameter itu. Permintaan kiosk (`HalamanImbas`) dan ESP32 (`api=sebab`, `api=rekod`, `doPost`) berjalan seperti biasa.
 
-1. Tekan **Deploy → New deployment**.
-2. Ikon gear ⚙ di sebelah *Select type* → pilih **Web app**.
-3. Tetapkan:
-   - **Execute as:** *Me* (akaun anda)
-   - **Who has access:** *Anyone*
-4. Tekan **Deploy**, kemudian salin **Web app URL** (berakhir dengan `/exec`).
+Tekan **Simpan** (💾).
 
-> **Kenapa "Anyone"?** Aplikasi tidak log masuk ke Google, jadi Web App mesti boleh dicapai tanpa log masuk. Data tetap dilindungi kerana setiap permintaan tanpa kunci rahsia yang betul akan ditolak (`unauthorized`).
->
-> Jika pilihan *Anyone* tiada (dihadkan oleh pentadbir Google Workspace MOE), penyelesaian alternatif diperlukan (cth. akses "Anyone within moe-dl.edu.my" tidak boleh digunakan oleh aplikasi tanpa log masuk).
+## 3. Jana kunci rahsia
 
-## 4. Masukkan ke dalam aplikasi
+1. Pada dropdown fungsi di bar atas, pilih **`setupCardPrintKey`**, kemudian tekan **Run**.
+2. Jika Google meminta kebenaran baharu (akses Drive untuk membaca foto): pilih akaun anda → **Advanced** → **Go to ... (unsafe)** → **Allow**.
+3. Buka **Execution log** dan salin kunci yang dipaparkan.
+
+Jika kunci terdedah, jalankan `setupCardPrintKey` sekali lagi. Kunci lama terus tidak sah, kemudian kemas kini kunci dalam aplikasi.
+
+## 4. Deploy versi baharu (URL kekal sama)
+
+> ⚠️ **Jangan buat *New deployment*.** Kemas kini deployment sedia ada supaya URL kiosk dan ESP32 kekal sama.
+
+1. **Deploy → Manage deployments**.
+2. Pilih deployment Web App sedia ada → ikon pensel ✏.
+3. **Version:** pilih **New version** → **Deploy**.
+4. Salin **Web app URL** (berakhir dengan `/exec`). Ini URL yang sama yang digunakan kiosk dan ESP32.
+
+Pastikan **Who has access** ialah *Anyone*. Biasanya ia sudah begitu kerana ESP32 menggunakan URL yang sama tanpa log masuk.
+
+## 5. Masukkan ke dalam aplikasi
 
 1. Buka **MyKUSESS Studio Card Print** → tab **Cetak Pukal**.
 2. Tekan ikon **⚙** di sebelah butang **Muat dari Google Sheet**.
-3. Tampal **URL Web App** dan **Kunci Rahsia** → tekan **Uji Sambungan**. Mesej hijau *"Berjaya disambung ke 'Sistem Outing dan Pulang Bermalam'"* bermaksud semuanya betul.
+3. Tampal **URL Web App** dan **Kunci Rahsia**, kemudian tekan **Uji Sambungan**. Mesej hijau *"Berjaya disambung ke 'Sistem Outing dan Pulang Bermalam'"* bermaksud semuanya betul.
 4. Tekan **Simpan**, kemudian **Muat dari Google Sheet**.
 
-Kali pertama, aplikasi memuat turun semua foto murid ke folder `photo_cache` di sebelah exe (beberapa minit untuk ±800 murid). Seterusnya hanya foto baharu dimuat turun, jadi muat semula menjadi pantas. Aplikasi juga akan memuat data terkini secara automatik setiap kali dibuka.
+Kali pertama, aplikasi memuat turun semua foto murid ke folder `photo_cache` di sebelah exe (beberapa minit untuk ±800 murid). Selepas itu hanya foto baharu dimuat turun. Aplikasi juga memuat data terkini secara automatik setiap kali dibuka.
 
-## Mengemas kini skrip
+## Mengemas kini CardPrint.gs pada masa hadapan
 
-Jika `Code.gs` dikemas kini pada masa hadapan: tampal versi baharu → **Deploy → Manage deployments** → ikon pensel ✏ → **Version: New version** → **Deploy**. URL dan kunci kekal sama.
+Tampal versi baharu ke fail `CardPrint`, kemudian **Deploy → Manage deployments → ✏ → New version → Deploy**. URL dan kunci kekal sama.
 
 ## Masalah biasa
 
 | Mesej dalam aplikasi | Punca & penyelesaian |
 |---|---|
+| *Web App memulangkan halaman web, bukan data* | Baris `cardprint` belum ditambah dalam `doGet`, atau versi baharu belum di-deploy (langkah 2 & 4). |
 | *Kunci rahsia (API Key) tidak sah* | Kunci salah salin atau telah dijana semula. Salin semula dari Execution log. |
-| *Respons bukan data JSON* | Web App bukan akses *Anyone*, atau URL bukan yang berakhir `/exec`. |
-| *API_KEY belum ditetapkan* | Langkah 2 belum dijalankan. |
-| *Foto: N gagal (fail tidak dijumpai)* | Fail foto dalam lajur GambarID sudah dipadam/dialih dalam Drive. Kad tetap boleh dicetak tanpa foto. |
-| *Tidak dapat menghubungi Google* | Tiada internet. Data & foto yang dimuat sebelum ini masih boleh digunakan melalui CSV/cache. |
+| *Kunci rahsia belum ditetapkan* | Langkah 3 belum dijalankan. |
+| *Google meminta log masuk* | Deployment bukan akses *Anyone*, atau URL bukan yang berakhir `/exec`. |
+| *Foto: N gagal (fail tidak dijumpai)* | Fail foto dalam lajur GambarID sudah dipadam atau dialih dalam Drive. Kad tetap boleh dicetak tanpa foto. |
+| *Tidak dapat menghubungi Google* | Tiada internet. Foto yang sudah dimuat turun kekal dalam cache. |
 
 ## Privasi
 
