@@ -1,8 +1,17 @@
-# MyKUSESS Studio Card Print v1.10
+# MyKUSESS Studio Card Print v1.11
 
 Aplikasi desktop (Windows, Python + CustomTkinter) untuk menjana dan mencetak kad pengenalan (ID card) guru/murid MyKUSESS, lengkap dengan gambar, kod QR unik, dan maklumat individu. Menyokong cetakan satu-satu atau pukal (batch) daripada fail CSV.
 
 ![Pratonton MyKUSESS Studio Card Print](screenshots/mykusess-studio-preview.png)
+
+## v1.11 — Nota Keluaran
+
+- **Pengesahan sebelum cetak pukal** — dialog baharu memaparkan bilangan kad, nama pencetak dan pecahan mengikut batch sebelum mencetak. Rekod beramaran (tiada foto, kod QR berganda, nama terlalu panjang) **dilangkau secara lalai**, dan ada pilihan untuk melangkau rekod yang pernah dicetak.
+- **Rekod tidak lagi ditanda secara lalai** selepas memuat CSV/Google Sheet — elak tercetak ratusan kad dengan satu klik. Kad yang berjaya dicetak dinyahtanda automatik; yang gagal kekal ditanda untuk cuba semula.
+- **Penapis Batch & Status** — dropdown untuk tapis mengikut batch (cth. "BATCH 26-30") dan status (Belum dicetak / Sudah dicetak / Ada amaran / Ditanda). **Pilih Semua** dan **Nyahpilih** kini hanya bertindak pada rekod yang dipaparkan.
+- **Log cetakan** — setiap kad yang dicetak direkod dalam `log_cetakan.csv` (masa, murid, batch, pencetak, mod, komputer). Lajur **STATUS** menunjukkan "✓ Dicetak 2×", baris yang pernah dicetak dipaparkan kelabu, cetakan semula kad satu-satu meminta pengesahan, dan butang **Eksport Log Cetakan** menjana fail CSV untuk Excel (laporan stok kad).
+- **Semakan data sebelum cetak** — setiap rekod disemak: tiada foto, tiada kod QR, kod QR berganda, nama terlalu panjang untuk lebar kad (diukur dengan fon, saiz & kedudukan sebenar dari Konfigurasi Layout), tiada email / email terlalu panjang. Baris beramaran berlatar jingga; klik baris untuk melihat butiran penuh di bawah jadual.
+- Lajur Kod QR disembunyikan daripada jadual untuk memberi ruang (dipaparkan dalam butiran baris).
 
 ## v1.10 — Nota Keluaran
 
