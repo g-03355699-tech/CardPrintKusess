@@ -28,3 +28,6 @@ photo_cache/
 *.mykusess
 *.mykusess.part
 templat/
+
+# Log cetakan kad (mengandungi nama murid) - jangan push
+log_cetakan.csv

@@ -3,10 +3,12 @@ import csv
 import json
 import sys
 import re
+import platform
 import random
 import string
 import datetime
 import base64
+import collections
 import concurrent.futures
 import hashlib
 import subprocess
@@ -26,7 +28,7 @@ import win32ui
 import win32con
 from PIL import ImageWin
 
-APP_VERSION = "v1.10"
+APP_VERSION = "v1.11"
 
 # --- AUTO-UPDATE (GitHub Releases) ---
 UPDATE_REPO = "g-03355699-tech/CardPrintKusess"
@@ -72,6 +74,9 @@ COLOR_SUCCESS_SOFT   = "#E7F6EC"
 COLOR_DANGER         = "#C62828"
 COLOR_DANGER_HOVER   = "#A51F1F"
 COLOR_DANGER_SOFT    = "#FDECEC"
+COLOR_WARN           = "#B45309"
+COLOR_WARN_SOFT      = "#FFF4E0"  # baris beramaran serius
+COLOR_WARN_SOFT_ON   = "#F9E3BC"  # baris beramaran serius yang ditanda
 COLOR_NEUTRAL        = "#64748B"
 COLOR_NEUTRAL_HOVER  = "#475569"
 
@@ -480,6 +485,61 @@ def write_bundle_template(member, data, dest_dir):
     return dest
 
 
+# ============================================================
+#  LOG CETAKAN & SEMAKAN DATA
+# ============================================================
+CARD_W, CARD_H = 1013, 638
+PRINT_LOG_FILENAME = "log_cetakan.csv"   # mengandungi nama murid — gitignored
+PRINT_LOG_FIELDS = ["masa", "kod_qr", "nama_penuh", "batch", "pencetak", "mod", "komputer"]
+TEXT_FIT_MARGIN = 12                     # jarak minimum teks dari tepi kad (px)
+
+
+def normalize_qr_code(code):
+    code = (code or "").strip().lower()
+    return code[len("mykusses:"):] if code.startswith("mykusses:") else code
+
+
+def load_print_log(path):
+    """Ringkasan log: kod QR (dinormalkan) -> {'count': n, 'last': 'YYYY-MM-DD HH:MM:SS'}."""
+    history = {}
+    if not os.path.exists(path):
+        return history
+    try:
+        with open(path, newline="", encoding="utf-8-sig") as f:
+            for row in csv.DictReader(f):
+                key = normalize_qr_code(row.get("kod_qr"))
+                if not key:
+                    continue
+                h = history.setdefault(key, {"count": 0, "last": ""})
+                h["count"] += 1
+                h["last"] = max(h["last"], row.get("masa", ""))
+    except Exception:
+        pass
+    return history
+
+
+def append_print_log(path, entries):
+    """Tambah baris ke log (Excel boleh buka terus: UTF-8 dengan BOM pada penciptaan pertama)."""
+    if not entries:
+        return
+    new_file = not os.path.exists(path) or os.path.getsize(path) == 0
+    with open(path, "a", newline="", encoding="utf-8-sig" if new_file else "utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=PRINT_LOG_FIELDS, extrasaction="ignore")
+        if new_file:
+            w.writeheader()
+        for e in entries:
+            w.writerow(e)
+
+
+def available_text_width(x, justify, card_w=CARD_W, margin=TEXT_FIT_MARGIN):
+    """Lebar maksimum teks pada kad mengikut kedudukan X & justifikasi (sama seperti anchor la/ma/ra)."""
+    if justify == "Center":
+        return 2 * max(0, min(x, card_w - x) - margin)
+    if justify == "Right":
+        return max(0, x - margin)
+    return max(0, card_w - x - margin)
+
+
 class CardPrinterApp(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -517,6 +577,10 @@ class CardPrinterApp(ctk.CTk):
         self.gsheet_key = ""
         self.photo_cache_dir = os.path.abspath(PHOTO_CACHE_DIR)
         self._gsheet_busy = False
+        self.print_log_filename = PRINT_LOG_FILENAME
+        self.print_history = load_print_log(self.print_log_filename)
+        self._preview_info = None      # rekod yang sedang dipratonton (untuk log cetakan satu-satu)
+        self._visible_records = []
 
         # --- GRID UTAMA (0 = header jenama, 1 = kandungan, 2 = bar status) ---
         self.grid_columnconfigure(0, weight=4, minsize=680)
@@ -857,7 +921,7 @@ class CardPrinterApp(ctk.CTk):
         self.ent_intake_year_t1.bind("<FocusOut>", lambda _e: self.save_app_settings())
         self.hint_label(intake_frame, "Untuk kira Batch daripada Tahap/Tgkt (CSV mentah)", wraplength=320).pack(side="left", padx=(10, 0))
 
-        body = self.section_card(pad, "2", "Senarai Murid", "Klik baris untuk tanda & pratonton · Dwi-klik Nama Penuh / Email MOE untuk sunting", icon="users")
+        body = self.section_card(pad, "2", "Senarai Murid", "Klik lajur TANDA untuk tanda · Dwi-klik nama/email untuk sunting", icon="users")
 
         toolbar = ctk.CTkFrame(body, fg_color="transparent")
         toolbar.pack(fill="x", pady=(0, 10))
@@ -874,6 +938,19 @@ class CardPrinterApp(ctk.CTk):
 
         self.btn_secondary(toolbar, "Pilih Semua", self.select_all_records, icon="square-check", width=128).pack(side="left", padx=(10, 6))
         self.btn_danger(toolbar, "Nyahpilih", self.deselect_all_records, icon="square", width=112, height=38).pack(side="left")
+
+        filters = ctk.CTkFrame(body, fg_color="transparent")
+        filters.pack(fill="x", pady=(0, 10))
+        self.field_label(filters, "Batch").pack(side="left", padx=(0, 8))
+        self.cbo_batch_filter = self.combo_box(filters, [self.FILTER_ALL_BATCH], width=190, command=lambda _v: self.refresh_treeview())
+        self.cbo_batch_filter.set(self.FILTER_ALL_BATCH)
+        self.cbo_batch_filter.configure(state="readonly")
+        self.cbo_batch_filter.pack(side="left", padx=(0, 16))
+        self.field_label(filters, "Status").pack(side="left", padx=(0, 8))
+        self.cbo_status_filter = self.combo_box(filters, self.STATUS_FILTERS, width=190, command=lambda _v: self.refresh_treeview())
+        self.cbo_status_filter.set(self.STATUS_FILTERS[0])
+        self.cbo_status_filter.configure(state="readonly")
+        self.cbo_status_filter.pack(side="left")
 
         style = ttk.Style()
         style.theme_use("clam")
@@ -894,17 +971,22 @@ class CardPrinterApp(ctk.CTk):
         tree_inner = tk.Frame(tree_frame, bg=COLOR_SURFACE, bd=0, highlightthickness=0)
         tree_inner.pack(fill="both", expand=True, padx=1, pady=1)
 
-        self.tree = ttk.Treeview(tree_inner, columns=("Pilih", "QR", "Batch", "Penuh", "Email"), show="headings", height=9)
+        self.tree = ttk.Treeview(tree_inner, columns=("Pilih", "QR", "Batch", "Penuh", "Email", "Status"), show="headings", height=9)
         self.tree.heading("Pilih", text="TANDA")
         self.tree.heading("QR", text="KOD QR", anchor="w")
         self.tree.heading("Batch", text="BATCH", anchor="w")
         self.tree.heading("Penuh", text="NAMA PENUH", anchor="w")
         self.tree.heading("Email", text="EMAIL MOE", anchor="w")
-        self.tree.column("Pilih", width=58, minwidth=50, anchor="center", stretch=False)
-        self.tree.column("QR", width=96, minwidth=60)
-        self.tree.column("Batch", width=84, minwidth=60)
-        self.tree.column("Penuh", width=200, minwidth=120)
-        self.tree.column("Email", width=150, minwidth=100)
+        self.tree.heading("Status", text="STATUS", anchor="w")
+        self.tree.column("Pilih", width=60, minwidth=56, anchor="center", stretch=False)
+        self.tree.column("QR", width=90, minwidth=60)
+        self.tree.column("Batch", width=86, minwidth=60)
+        self.tree.column("Penuh", width=196, minwidth=120)
+        self.tree.column("Email", width=128, minwidth=80)
+        self.tree.column("Status", width=134, minwidth=100)
+        # Kod QR disembunyikan daripada paparan (ruang sempit) tetapi kekal sebagai values[1]
+        # untuk mengenal pasti rekod; ia dipaparkan dalam butiran baris di bawah jadual.
+        self.tree.configure(displaycolumns=("Pilih", "Batch", "Penuh", "Email", "Status"))
 
         # Slider skrol menegak di sebelah senarai supaya senarai panjang (ratusan
         # rekod CSV) boleh diskrol pantas dengan menyeret, bukan sekadar roda tetikus.
@@ -918,6 +1000,9 @@ class CardPrinterApp(ctk.CTk):
         # supaya senarai mudah dibaca sekali pandang (bukan sekadar simbol teks).
         self.tree.tag_configure("row_on", background=COLOR_ACCENT_SOFT)
         self.tree.tag_configure("row_off", background=COLOR_SURFACE)
+        self.tree.tag_configure("row_warn", background=COLOR_WARN_SOFT)          # amaran serius
+        self.tree.tag_configure("row_warn_on", background=COLOR_WARN_SOFT_ON)    # amaran serius + ditanda
+        self.tree.tag_configure("row_done", foreground=COLOR_TEXT_SUBTLE)        # pernah dicetak
 
         self.tree.bind("<ButtonRelease-1>", self.on_tree_click)
         self.tree.bind("<Double-1>", self.on_tree_double_click)
@@ -925,6 +1010,10 @@ class CardPrinterApp(ctk.CTk):
         self.lbl_tree_count = ctk.CTkLabel(body, text="Tiada rekod dimuat", font=ctk.CTkFont(family=FONT_FAMILY, size=11),
                                            text_color=COLOR_TEXT_MUTED, anchor="w")
         self.lbl_tree_count.pack(fill="x", pady=(8, 0))
+        self.lbl_row_detail = ctk.CTkLabel(body, text="Klik satu baris untuk melihat semakan data & sejarah cetakan.",
+                                           font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color=COLOR_TEXT_SUBTLE,
+                                           anchor="w", justify="left", wraplength=600, fg_color=COLOR_SURFACE_ALT, corner_radius=8)
+        self.lbl_row_detail.pack(fill="x", pady=(6, 0), ipady=6, ipadx=8)
 
         body = self.section_card(pad, "3", "Cetak & Eksport", "Cetak terus ke pencetak kad atau jana PDF bagi rekod bertanda", icon="printer")
         self.progress_frame = ctk.CTkFrame(body, fg_color="transparent")
@@ -942,6 +1031,11 @@ class CardPrinterApp(ctk.CTk):
         btn_action_frame.grid_columnconfigure(1, weight=2, uniform="act")
         self.btn_cta(btn_action_frame, "Cetak Semua Ditanda", self.print_batch, icon="printer").grid(row=0, column=0, sticky="ew", padx=(0, 6))
         self.btn_secondary(btn_action_frame, "Muat Turun PDF", self.download_pdf_batch, icon="file-text", height=46).grid(row=0, column=1, sticky="ew", padx=(6, 0))
+        log_row = ctk.CTkFrame(body, fg_color="transparent")
+        log_row.pack(fill="x", pady=(12, 0))
+        self.btn_secondary(log_row, "Eksport Log Cetakan", self.export_print_log, icon="file-spreadsheet", width=190, height=34).pack(side="left")
+        self.lbl_log_summary = self.hint_label(log_row, "", wraplength=360)
+        self.lbl_log_summary.pack(side="left", padx=(12, 0))
         ctk.CTkFrame(pad, height=6, fg_color="transparent").pack()
 
     # ============================================================
@@ -1099,7 +1193,8 @@ class CardPrinterApp(ctk.CTk):
         printer = self.cbo_printer.get() if hasattr(self, "cbo_printer") else "-"
         total = len(self.csv_data)
         marked = sum(1 for r in self.csv_data if r.get("pilih"))
-        self.lbl_status_left.configure(text=f"Sedia     |     Pencetak: {printer or '-'}     |     Rekod: {total}  ·  Ditanda: {marked}")
+        printed = sum(1 for r in self.csv_data if self.print_info(r))
+        self.lbl_status_left.configure(text=f"Sedia     |     Pencetak: {printer or '-'}     |     Rekod: {total}  ·  Ditanda: {marked}  ·  Pernah dicetak: {printed}")
 
     # ============================================================
     #  LOGIK APLIKASI (tidak berubah — hanya paparan diubah suai)
@@ -1180,6 +1275,9 @@ class CardPrinterApp(ctk.CTk):
         # Dipanggil setiap kali mana-mana medan konfigurasi layout berubah,
         # supaya tetapan pengguna terus dikekalkan tanpa perlu tekan "Simpan Layout".
         self.save_layout_config(silent=True)
+        # Saiz/kedudukan fon mempengaruhi semakan "Nama terlalu panjang"
+        if self.csv_data and hasattr(self, "cbo_status_filter") and hasattr(self, "cfg_n3_justify"):
+            self.refresh_treeview()
 
     def load_layout_config(self, silent=False):
         if not os.path.exists(self.config_filename): return
@@ -1594,7 +1692,8 @@ class CardPrinterApp(ctk.CTk):
         records = []
         for row in rows:
             row_data = self._normalize_csv_row(row, is_raw_schema)
-            row_data['pilih'] = marks.get(row_data['kod_qr'], True)  # rekod baharu lalai ditanda
+            # Rekod baharu lalai TIDAK ditanda — elak tercetak ratusan kad dengan satu klik
+            row_data['pilih'] = marks.get(row_data['kod_qr'], False)
             records.append(row_data)
         return records
 
@@ -1890,7 +1989,7 @@ class CardPrinterApp(ctk.CTk):
             headers, rows = result
             self.csv_data = self._rows_to_records(headers, rows, previous=self.csv_data if self.data_source == "gsheet" else None)
             self.data_source = "gsheet"
-            self.refresh_treeview(self.ent_search.get())
+            self.refresh_treeview()
             self.lbl_csv.configure(text="CSV: Tidak digunakan (sumber: Google Sheet)", text_color=COLOR_TEXT_SUBTLE)
             if not self.photo_folder:
                 self.lbl_folder.configure(text="Folder: Pilihan — foto diambil terus dari Google Drive", text_color=COLOR_TEXT_SUBTLE)
@@ -1936,6 +2035,8 @@ class CardPrinterApp(ctk.CTk):
 
     def _finish_gsheet_sync(self, ok_count, failed):
         self._gsheet_busy = False
+        if ok_count:
+            self.refresh_treeview()   # kira semula amaran "Tiada foto"
         self.btn_gsheet.configure(state="normal", text="Muat Semula dari Google Sheet")
         text = self._gsheet_summary
         if ok_count:
@@ -2013,56 +2114,97 @@ class CardPrinterApp(ctk.CTk):
             "gsheet_key": self.gsheet_key,
         }
 
-    def refresh_treeview(self, filter_text=""):
-        self.tree.delete(*self.tree.get_children())
-        for row in self.csv_data:
-            # Tapis carian secara tidak sensitif huruf (case-insensitive)
-            if filter_text:
-                f_text = filter_text.lower()
-                if f_text not in row['nama_penuh'].lower() and f_text not in row['batch'].lower():
-                    continue
+    FILTER_ALL_BATCH = "Semua Batch"
+    STATUS_FILTERS = ["Semua status", "Belum dicetak", "Sudah dicetak", "Ada amaran", "Ditanda"]
 
+    def _row_visible(self, row, query, batch, status):
+        if query and query not in row['nama_penuh'].lower() and query not in row['batch'].lower():
+            return False
+        if batch and batch != self.FILTER_ALL_BATCH and row['batch'] != batch:
+            return False
+        if status == "Belum dicetak":
+            return not self.print_info(row)
+        if status == "Sudah dicetak":
+            return bool(self.print_info(row))
+        if status == "Ada amaran":
+            return self.has_serious_warning(row)
+        if status == "Ditanda":
+            return bool(row['pilih'])
+        return True
+
+    def _sync_batch_filter_values(self):
+        values = [self.FILTER_ALL_BATCH] + sorted({r['batch'] for r in self.csv_data if r.get('batch')})
+        if list(self.cbo_batch_filter.cget("values")) != values:
+            self.cbo_batch_filter.configure(values=values)
+        if self.cbo_batch_filter.get() not in values:
+            self.cbo_batch_filter.set(self.FILTER_ALL_BATCH)
+
+    def refresh_treeview(self, filter_text=None, revalidate=True):
+        # Penapis sentiasa dibaca dari widget (carian + Batch + Status); `filter_text` dikekalkan untuk keserasian.
+        if revalidate:
+            self.validate_records()
+        self._sync_batch_filter_values()
+        query = self.ent_search.get().strip().lower()
+        batch, status = self.cbo_batch_filter.get(), self.cbo_status_filter.get()
+
+        self.tree.delete(*self.tree.get_children())
+        self._visible_records = []
+        for row in self.csv_data:
+            if not self._row_visible(row, query, batch, status):
+                continue
+            self._visible_records.append(row)
             pilih_symbol = "✅" if row['pilih'] else "⬜"
-            row_tag = "row_on" if row['pilih'] else "row_off"
+            if self.has_serious_warning(row):
+                tags = ("row_warn_on" if row['pilih'] else "row_warn",)
+            else:
+                tags = ("row_on" if row['pilih'] else "row_off",)
+            if self.print_info(row) and not row['pilih']:
+                tags += ("row_done",)
             # Papar penanda jelas apabila Email MOE sengaja dikosongkan (murid tiada email),
             # supaya senarai tidak kelihatan seperti data hilang/tertinggal.
             email_display = row['email_moe'] if row['email_moe'] else "(Tiada Email)"
-            self.tree.insert("", tk.END, values=(pilih_symbol, row['kod_qr'], row['batch'], row['nama_penuh'], email_display), tags=(row_tag,))
+            self.tree.insert("", tk.END, values=(pilih_symbol, row['kod_qr'], row['batch'], row['nama_penuh'], email_display,
+                                                 self.status_text(row)), tags=tags)
 
         if hasattr(self, "lbl_tree_count"):
             total = len(self.csv_data)
-            marked = sum(1 for r in self.csv_data if r.get("pilih"))
-            shown = len(self.tree.get_children())
             if total:
-                text = f"{total} rekod  ·  {marked} ditanda untuk dicetak"
-                if shown != total:
-                    text += f"  ·  {shown} dipaparkan (carian)"
+                marked = sum(1 for r in self.csv_data if r.get("pilih"))
+                warned = sum(1 for r in self.csv_data if self.has_serious_warning(r))
+                printed = sum(1 for r in self.csv_data if self.print_info(r))
+                text = f"{total} rekod  ·  {marked} ditanda  ·  {printed} pernah dicetak  ·  {warned} beramaran"
+                if len(self._visible_records) != total:
+                    text += f"  ·  {len(self._visible_records)} dipaparkan"
             else:
                 text = "Tiada rekod dimuat"
             self.lbl_tree_count.configure(text=text)
+        self.update_log_summary()
         self.update_status_bar()
 
+    def update_log_summary(self):
+        if hasattr(self, "lbl_log_summary"):
+            total = sum(h["count"] for h in self.print_history.values())
+            self.lbl_log_summary.configure(text=f"{total} cetakan direkod dalam {self.print_log_filename}" if total
+                                           else f"Belum ada cetakan direkod ({self.print_log_filename})")
+
     def filter_search(self, event):
-        query = self.ent_search.get()
-        self.refresh_treeview(query)
+        self.refresh_treeview(revalidate=False)
 
     def clear_search(self):
         self.ent_search.delete(0, tk.END)
         self.refresh_treeview()
 
     def select_all_records(self):
-        """Menandakan semua rekod murid."""
-        if not self.csv_data: return
-        for row in self.csv_data:
+        """Menanda rekod yang DIPAPARKAN sahaja (ikut carian & penapis Batch/Status)."""
+        for row in self._visible_records:
             row['pilih'] = True
-        self.refresh_treeview(self.ent_search.get())
+        self.refresh_treeview(revalidate=False)
 
     def deselect_all_records(self):
-        """Mengosongkan tanda daripada semua rekod murid."""
-        if not self.csv_data: return
-        for row in self.csv_data:
+        """Mengosongkan tanda rekod yang dipaparkan (semua rekod jika tiada penapis)."""
+        for row in self._visible_records:
             row['pilih'] = False
-        self.refresh_treeview(self.ent_search.get())
+        self.refresh_treeview(revalidate=False)
 
     def on_tree_click(self, event):
         # Mengesan baris dan lajur yang diklik
@@ -2083,13 +2225,16 @@ class CardPrinterApp(ctk.CTk):
         # Jika kolum pertama (Pilih) diklik, tukar status checkbox
         if column == "#1":
             record['pilih'] = not record['pilih']
-            self.refresh_treeview(self.ent_search.get())
+            self.refresh_treeview(revalidate=False)
+        self.lbl_row_detail.configure(text=self.record_detail_text(record),
+                                      text_color=COLOR_WARN if self.has_serious_warning(record) else COLOR_TEXT_MUTED)
 
         # Tunjuk preview kad secara automatik apabila baris disentuh
         try:
             card = self.make_card_image(record['kod_qr'], record['batch'], record['nama_penuh'], record['email_moe'], record['fail_gambar'], is_batch=True)
             self.update_preview_ui(card)
             self._preview_kod_qr = record['kod_qr']
+            self._preview_info = {"kod_qr": record['kod_qr'], "nama_penuh": record['nama_penuh'], "batch": record['batch']}
         except Exception as e:
             self.lbl_preview.configure(image="", text=f"Gagal Preview:\n{str(e)}", text_color=COLOR_DANGER)
             self.btn_global_print.configure(state="disabled")
@@ -2102,7 +2247,11 @@ class CardPrinterApp(ctk.CTk):
         if region != "cell": return
 
         column = self.tree.identify_column(event.x)
-        if column not in ("#4", "#5"): return
+        try:
+            column_id = self.tree.column(column, "id")   # kedudukan paparan -> id lajur (QR disembunyikan)
+        except tk.TclError:
+            return
+        if column_id not in ("Penuh", "Email"): return
 
         selected_item = self.tree.focus()
         if not selected_item: return
@@ -2112,7 +2261,7 @@ class CardPrinterApp(ctk.CTk):
         record = next((r for r in self.csv_data if r['kod_qr'] == kod_qr_val), None)
         if not record: return
 
-        if column == "#4":
+        if column_id == "Penuh":
             field, title, label = "nama_penuh", "Edit Nama Penuh", "Nama Penuh:"
         else:
             field, title, label = "email_moe", "Edit Email MOE", "Email MOE (kosongkan jika murid tiada Email MOE):"
@@ -2125,7 +2274,8 @@ class CardPrinterApp(ctk.CTk):
             return
 
         record[field] = new_val
-        self.refresh_treeview(self.ent_search.get())
+        self.refresh_treeview()
+        self._preview_info = {"kod_qr": record['kod_qr'], "nama_penuh": record['nama_penuh'], "batch": record['batch']}
 
         try:
             card = self.make_card_image(record['kod_qr'], record['batch'], record['nama_penuh'], record['email_moe'], record['fail_gambar'], is_batch=True)
@@ -2133,6 +2283,79 @@ class CardPrinterApp(ctk.CTk):
         except Exception as e:
             self.lbl_preview.configure(image="", text=f"Gagal Preview:\n{str(e)}", text_color=COLOR_DANGER)
             self.btn_global_print.configure(state="disabled")
+
+    # ============================================================
+    # SEMAKAN DATA SEBELUM CETAK
+    # ============================================================
+    SERIOUS = "serius"
+    INFO = "info"
+
+    def _text_fit_checker(self, key):
+        """Fungsi teks -> lebar berlebihan (px) bagi medan cfg_<key>, atau None jika fon tidak dapat dimuat."""
+        try:
+            x = int(getattr(self, f"cfg_{key}_x").get())
+            size = int(getattr(self, f"cfg_{key}_font").get())
+            font = ImageFont.truetype(self.get_font_path(getattr(self, f"cfg_{key}_font_file").get(),
+                                                         getattr(self, f"cfg_{key}_bold").get(),
+                                                         getattr(self, f"cfg_{key}_italic").get()), size)
+        except Exception:
+            return None
+        limit = available_text_width(x, getattr(self, f"cfg_{key}_justify").get())
+        return lambda text: max(0, int(font.getlength(text)) - limit) if text else 0
+
+    def validate_records(self):
+        """Isi r['_warn'] = [(tahap, mesej), ...] bagi setiap rekod."""
+        counts = collections.Counter(normalize_qr_code(r['kod_qr']) for r in self.csv_data if r.get('kod_qr'))
+        name_over = self._text_fit_checker("n2")
+        email_over = self._text_fit_checker("n3")
+        for r in self.csv_data:
+            warn = []
+            code = normalize_qr_code(r.get('kod_qr'))
+            if not code:
+                warn.append((self.SERIOUS, "Tiada kod QR"))
+            elif counts[code] > 1:
+                warn.append((self.SERIOUS, f"Kod QR berganda ({counts[code]} rekod)"))
+            if not r.get('fail_gambar') or not os.path.exists(self.batch_photo_path(r['fail_gambar'])):
+                warn.append((self.SERIOUS, "Tiada foto"))
+            if name_over:
+                over = name_over(r.get('nama_penuh', '').upper())
+                if over:
+                    warn.append((self.SERIOUS, f"Nama terlalu panjang (lebih {over}px)"))
+            if not r.get('email_moe'):
+                warn.append((self.INFO, "Tiada email"))
+            elif email_over:
+                over = email_over(r['email_moe'].lower())
+                if over:
+                    warn.append((self.INFO, f"Email terlalu panjang (lebih {over}px)"))
+            r['_warn'] = warn
+
+    @staticmethod
+    def has_serious_warning(r):
+        return any(level == CardPrinterApp.SERIOUS for level, _ in r.get('_warn', []))
+
+    def print_info(self, r):
+        return self.print_history.get(normalize_qr_code(r.get('kod_qr')))
+
+    def status_text(self, r):
+        parts = []
+        serious = [m for lvl, m in r.get('_warn', []) if lvl == self.SERIOUS]
+        info = [m for lvl, m in r.get('_warn', []) if lvl == self.INFO]
+        if serious:
+            parts.append("⚠ " + serious[0] + (f" (+{len(serious) - 1})" if len(serious) > 1 else ""))
+        hist = self.print_info(r)
+        if hist:
+            parts.append(f"✓ Dicetak {hist['count']}×")
+        if not parts:
+            parts.append("• " + info[0] if info else "Belum dicetak")
+        return "  ·  ".join(parts)
+
+    def record_detail_text(self, r):
+        lines = [f"{r.get('nama_penuh', '')}  ({r.get('kod_qr', '') or 'tiada kod QR'})"]
+        warns = [("⚠ " if lvl == self.SERIOUS else "• ") + m for lvl, m in r.get('_warn', [])]
+        lines.append(", ".join(warns) if warns else "✓ Data lengkap")
+        hist = self.print_info(r)
+        lines.append(f"Dicetak {hist['count']}× (terakhir {hist['last']})" if hist else "Belum pernah dicetak")
+        return "   |   ".join(lines)
 
     def get_font_path(self, base_font, bold, italic):
         font_map = {
@@ -2226,6 +2449,8 @@ class CardPrinterApp(ctk.CTk):
         try:
             card = self.make_card_image(self.ent_qr_code.get(), self.ent_batch.get(), self.ent_full_name.get(), self.ent_email_moe.get(), self.single_photo_path)
             self.update_preview_ui(card)
+            self._preview_info = {"kod_qr": self.ent_qr_code.get().strip(), "nama_penuh": self.ent_full_name.get().strip(),
+                                  "batch": self.ent_batch.get().strip()}
         except Exception as e: messagebox.showerror("Ralat", str(e))
 
     def trigger_refresh_preview(self):
@@ -2243,13 +2468,60 @@ class CardPrinterApp(ctk.CTk):
         elif self.ent_qr_code.get() and self.single_photo_path:
             self.generate_single_preview()
 
+    def _log_entry(self, info, mode):
+        return {"masa": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "kod_qr": info.get("kod_qr", ""),
+                "nama_penuh": info.get("nama_penuh", ""), "batch": info.get("batch", ""), "pencetak": self.cbo_printer.get(),
+                "mod": mode, "komputer": platform.node()}
+
+    def record_prints(self, entries):
+        try:
+            append_print_log(self.print_log_filename, entries)
+        except Exception as e:
+            messagebox.showwarning("Log Cetakan", f"Kad dicetak, tetapi log cetakan gagal disimpan:\n{e}")
+        for e in entries:
+            key = normalize_qr_code(e["kod_qr"])
+            if key:
+                h = self.print_history.setdefault(key, {"count": 0, "last": ""})
+                h["count"] += 1
+                h["last"] = max(h["last"], e["masa"])
+
     def print_single_card(self):
         if self.generated_card is None: return
+        info = self._preview_info or {}
+        hist = self.print_history.get(normalize_qr_code(info.get("kod_qr")))
+        if hist and not messagebox.askyesno(
+                "Kad Pernah Dicetak",
+                f"Kad {info.get('nama_penuh', '')} pernah dicetak {hist['count']}× (terakhir {hist['last']}).\n\nCetak sekali lagi?"):
+            return
         try:
             self.generated_card.save("temp_print.png")
             self.send_to_printer("temp_print.png")
-            messagebox.showinfo("Berjaya", "Kad berjaya dihantar ke pencetak!")
-        except Exception as e: messagebox.showerror("Ralat", str(e))
+        except Exception as e:
+            messagebox.showerror("Ralat", str(e))
+            return
+        if info.get("kod_qr"):
+            self.record_prints([self._log_entry(info, "satu")])
+            self.refresh_treeview(revalidate=False)
+        messagebox.showinfo("Berjaya", "Kad berjaya dihantar ke pencetak!")
+
+    def export_print_log(self):
+        if not os.path.exists(self.print_log_filename):
+            messagebox.showinfo("Log Cetakan", "Belum ada cetakan direkod.")
+            return
+        path = filedialog.asksaveasfilename(defaultextension=".csv", initialfile=f"Log Cetakan Kad {datetime.date.today():%Y-%m-%d}.csv",
+                                            filetypes=[("CSV (Excel)", "*.csv")])
+        if not path:
+            return
+        try:
+            with open(self.print_log_filename, newline="", encoding="utf-8-sig") as src:
+                rows = list(csv.DictReader(src))
+            with open(path, "w", newline="", encoding="utf-8-sig") as out:
+                w = csv.DictWriter(out, fieldnames=PRINT_LOG_FIELDS, extrasaction="ignore")
+                w.writeheader()
+                w.writerows(rows)
+            messagebox.showinfo("Log Cetakan", f"{len(rows)} rekod cetakan dieksport ke:\n{path}")
+        except Exception as e:
+            messagebox.showerror("Log Cetakan", f"Gagal mengeksport log:\n{e}")
 
     def download_card_image(self):
         if self.generated_card is None: return
@@ -2267,11 +2539,16 @@ class CardPrinterApp(ctk.CTk):
         if not self.bg_path or not (self.photo_folder or self.data_source == "gsheet"):
             messagebox.showwarning("Ralat", "Sila pastikan Template Kad dan Folder Gambar telah dipilih!")
             return
-        if not messagebox.askyesno("Sahkan", f"Cetak {len(selected_records)} keping kad murid yang ditandakan?"): return
+        self.validate_records()
+        selected_records = self.confirm_batch_print(selected_records)
+        if not selected_records:
+            return
 
         total_cards = len(selected_records)
         success_count = 0
         failed_cards = []
+        failed_ids = set()
+        log_entries = []
 
         for index, record in enumerate(selected_records):
             self.lbl_progress_status.configure(text=f"Mencetak ({index + 1}/{total_cards}): {record['nama_penuh']}")
@@ -2281,14 +2558,124 @@ class CardPrinterApp(ctk.CTk):
                 card.save("temp_batch_print.png")
                 self.send_to_printer("temp_batch_print.png")
                 success_count += 1
+                entry = self._log_entry(record, "pukal")
+                log_entries.append(entry)
+                append_print_log(self.print_log_filename, [entry])   # tulis serta-merta: selamat jika aplikasi tertutup
             except Exception as e:
                 failed_cards.append(record['nama_penuh'])
+                failed_ids.add(id(record))
 
             self.progress_bar.set((index + 1) / total_cards)
             self.update_idletasks()
 
-        self.lbl_progress_status.configure(text="Status: Selesai.")
-        messagebox.showinfo("Selesai", f"Berjaya cetak: {success_count} kad.\nGagal: {len(failed_cards)}")
+        for e in log_entries:   # kemas kini ringkasan dalam memori (fail sudah ditulis di atas)
+            key = normalize_qr_code(e["kod_qr"])
+            if key:
+                h = self.print_history.setdefault(key, {"count": 0, "last": ""})
+                h["count"] += 1
+                h["last"] = max(h["last"], e["masa"])
+        for r in selected_records:   # kad yang berjaya dicetak tidak lagi ditanda — elak tercetak dua kali
+            if id(r) not in failed_ids:
+                r['pilih'] = False
+        self.refresh_treeview(revalidate=False)
+        self.lbl_progress_status.configure(text=f"Status: Selesai — {success_count} dicetak, {len(failed_cards)} gagal.")
+        msg = f"Berjaya cetak: {success_count} kad.\nGagal: {len(failed_cards)}"
+        if failed_cards:
+            msg += "\n\nGagal (masih ditanda untuk cuba semula):\n" + "\n".join(failed_cards[:15])
+            if len(failed_cards) > 15:
+                msg += f"\n... dan {len(failed_cards) - 15} lagi"
+        messagebox.showinfo("Selesai", msg)
+
+    def confirm_batch_print(self, records):
+        """Dialog pengesahan cetak pukal. Pulangkan senarai rekod akhir untuk dicetak, atau None jika dibatalkan."""
+        serious = [r for r in records if self.has_serious_warning(r)]
+        printed = [r for r in records if self.print_info(r)]
+        result = {"records": None}
+
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Sahkan Cetakan Pukal")
+        dialog.geometry("560x300")
+        dialog.resizable(False, False)
+        dialog.configure(fg_color=COLOR_SURFACE)
+        dialog.transient(self)
+
+        head = ctk.CTkFrame(dialog, fg_color="transparent")
+        head.pack(fill="x", padx=24, pady=(22, 0))
+        ctk.CTkLabel(head, text="", image=make_icon("printer", COLOR_ACCENT, 26)).pack(side="left", padx=(0, 12))
+        title_box = ctk.CTkFrame(head, fg_color="transparent")
+        title_box.pack(side="left")
+        lbl_title = ctk.CTkLabel(title_box, text="", font=ctk.CTkFont(family=FONT_FAMILY_SEMIBOLD, size=20), text_color=COLOR_TEXT, anchor="w")
+        lbl_title.pack(anchor="w")
+        ctk.CTkLabel(title_box, text=f"Pencetak: {self.cbo_printer.get()}", font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                     text_color=COLOR_TEXT_MUTED, anchor="w").pack(anchor="w")
+
+        by_batch = collections.Counter(r['batch'] or "(tiada batch)" for r in records)
+        batch_lines = [f"{b}: {n} kad" for b, n in by_batch.most_common(6)]
+        if len(by_batch) > 6:
+            batch_lines.append(f"... dan {len(by_batch) - 6} batch lain")
+        box = ctk.CTkFrame(dialog, fg_color=COLOR_SURFACE_ALT, corner_radius=10)
+        box.pack(fill="x", padx=24, pady=(16, 0))
+        self.field_label(box, "Rekod ditanda mengikut batch").pack(anchor="w", padx=14, pady=(10, 2))
+        ctk.CTkLabel(box, text="\n".join(batch_lines), font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=COLOR_TEXT,
+                     justify="left", anchor="w").pack(anchor="w", padx=14, pady=(0, 10))
+
+        skip_serious = tk.BooleanVar(value=bool(serious))
+        skip_printed = tk.BooleanVar(value=False)
+        opts = ctk.CTkFrame(dialog, fg_color="transparent")
+        opts.pack(fill="x", padx=24, pady=(14, 0))
+
+        def checkbox(parent, text, var, color):
+            cb = ctk.CTkCheckBox(parent, text=text, variable=var, command=update, fg_color=COLOR_ACCENT, hover_color=COLOR_ACCENT_HOVER,
+                                 border_color=COLOR_BORDER_STRONG, border_width=2, corner_radius=5, checkbox_width=20,
+                                 checkbox_height=20, text_color=color, font=ctk.CTkFont(family=FONT_FAMILY_SEMIBOLD, size=12))
+            cb.pack(anchor="w", pady=(0, 4))
+            return cb
+
+        def final_list():
+            return [r for r in records
+                    if not (skip_serious.get() and self.has_serious_warning(r))
+                    and not (skip_printed.get() and self.print_info(r))]
+
+        def update():
+            n = len(final_list())
+            lbl_title.configure(text=f"Cetak {n} kad?")
+            btn_go.configure(text=f"Cetak {n} Kad", state="normal" if n else "disabled",
+                             fg_color=COLOR_ACCENT if n else COLOR_BORDER_STRONG)
+
+        if serious:
+            reasons = collections.Counter(m.split(" (")[0] for r in serious for lvl, m in r['_warn'] if lvl == self.SERIOUS)
+            checkbox(opts, f"Langkau {len(serious)} rekod beramaran", skip_serious, COLOR_WARN)
+            self.hint_label(opts, "   " + ", ".join(f"{k}: {v}" for k, v in reasons.most_common()), wraplength=480).pack(anchor="w", pady=(0, 8))
+        if printed:
+            checkbox(opts, f"Langkau {len(printed)} rekod yang pernah dicetak", skip_printed, COLOR_TEXT)
+            self.hint_label(opts, "   Biarkan tidak bertanda jika anda sengaja mencetak kad ganti.", wraplength=480).pack(anchor="w", pady=(0, 8))
+        if not serious and not printed:
+            ctk.CTkLabel(opts, text="✓  Semua rekod lengkap dan belum pernah dicetak.", text_color=COLOR_SUCCESS,
+                         font=ctk.CTkFont(family=FONT_FAMILY_SEMIBOLD, size=12)).pack(anchor="w")
+
+        def on_go():
+            result["records"] = final_list()
+            dialog.destroy()
+
+        btns = ctk.CTkFrame(dialog, fg_color="transparent")
+        btns.pack(side="bottom", fill="x", padx=24, pady=(10, 20))
+        btn_go = self.btn_cta(btns, "", on_go, icon="printer", width=200, height=44)
+        btn_go.pack(side="right")
+        self.btn_secondary(btns, "Batal", dialog.destroy, width=100, height=44).pack(side="right", padx=(0, 8))
+        dialog.bind("<Escape>", lambda _e: dialog.destroy())
+        update()
+
+        dialog.update_idletasks()
+        req_h = head.winfo_reqheight() + box.winfo_reqheight() + opts.winfo_reqheight() + btns.winfo_reqheight() + 100
+        dialog.geometry(f"560x{min(max(req_h, 300), 680)}")
+        dialog.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width() // 2) - (dialog.winfo_width() // 2)
+        y = self.winfo_y() + (self.winfo_height() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
+        dialog.grab_set()
+        self._confirm_dialog = dialog
+        dialog.wait_window()
+        return result["records"]
 
     def download_pdf_batch(self):
         selected_records = [r for r in self.csv_data if r['pilih']]
