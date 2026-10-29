@@ -1,8 +1,16 @@
-# MyKUSESS Studio Card Print v1.08
+# MyKUSESS Studio Card Print v1.09
 
 Aplikasi desktop (Windows, Python + CustomTkinter) untuk menjana dan mencetak kad pengenalan (ID card) guru/murid MyKUSESS, lengkap dengan gambar, kod QR unik, dan maklumat individu. Menyokong cetakan satu-satu atau pukal (batch) daripada fail CSV.
 
 ![Pratonton MyKUSESS Studio Card Print](screenshots/mykusess-studio-preview.png)
+
+## v1.09 — Nota Keluaran
+
+- **Muat senarai murid terus dari Google Sheet** — butang baharu **Muat dari Google Sheet** di tab Cetak Pukal memuat tab *Users* dari sheet "Sistem Outing dan Pulang Bermalam" tanpa perlu eksport CSV lagi. Sheet kekal peribadi; aplikasi berhubung melalui projek Apps Script sedia ada pada sheet itu (fail tambahan `CardPrint.gs` + satu baris dalam `doGet`, berkunci rahsia) tanpa menjejaskan kiosk imbasan & ESP32 — lihat [`google-apps-script/PANDUAN.md`](google-apps-script/PANDUAN.md) untuk pemasangan sekali.
+- **Foto murid dimuat turun automatik dari Google Drive** (folder AppSheet `Users_Images`) ke cache tempatan `photo_cache/` — tidak perlu lagi pilih folder gambar. Hanya foto baharu dimuat turun pada muatan seterusnya; kemajuan dipaparkan, dan foto yang tiada di Drive dilaporkan tanpa menghalang cetakan.
+- **Data terkini setiap kali aplikasi dibuka** — jika sumber terakhir ialah Google Sheet, senarai dimuat semula secara automatik. Tanda pilihan murid dikekalkan semasa muat semula.
+- **Dialog Tetapan Google Sheet** dengan butang **Uji Sambungan** dan mesej ralat yang jelas (kunci salah, Web App bukan akses *Anyone*, tiada internet).
+- Muat Naik CSV & Pilih Folder Gambar masih berfungsi seperti biasa sebagai alternatif.
 
 ## v1.08 — Nota Keluaran
 

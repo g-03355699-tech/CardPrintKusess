@@ -20,3 +20,6 @@ __pycache__/
 update_settings.json
 *.exe.new
 *.exe.old
+
+# Cache foto murid dari Google Drive (data peribadi) - jangan push
+photo_cache/
