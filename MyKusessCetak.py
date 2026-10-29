@@ -15,6 +15,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import webbrowser
+import zipfile
 import tkinter as tk
 import customtkinter as ctk
 from tkinter import filedialog, messagebox, ttk
@@ -25,7 +26,7 @@ import win32ui
 import win32con
 from PIL import ImageWin
 
-APP_VERSION = "v1.09"
+APP_VERSION = "v1.10"
 
 # --- AUTO-UPDATE (GitHub Releases) ---
 UPDATE_REPO = "g-03355699-tech/CardPrintKusess"
@@ -363,9 +364,126 @@ def gsheet_download_photos(url, key, rel_paths, cache_root, progress_cb=None):
     return ok_count, failed
 
 
+# ============================================================
+#  PINDAH TETAPAN KE PC LAIN (fail .mykusess = zip)
+# ============================================================
+SETTINGS_BUNDLE_EXT = ".mykusess"
+SETTINGS_BUNDLE_FORMAT = "mykusess-settings"
+SETTINGS_BUNDLE_VERSION = 1
+TEMPLATE_IMPORT_DIR = "templat"   # templat dari fail import disalin ke sini (di sebelah tetapan)
+TEMPLATE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp"}
+BUNDLE_MAX_MEMBER_BYTES = 60 * 1024 * 1024
+
+
+class SettingsBundleError(Exception):
+    pass
+
+
+def build_settings_bundle(dest_path, settings, layout, presets, current_bg, include_gsheet):
+    """Tulis fail tetapan. `settings`: dict app_settings; `presets`: senarai 4 slot; pulangkan ringkasan."""
+    portable = {k: settings.get(k, "") for k in ("csv_encoding", "intake_year_t1")}
+    if include_gsheet:
+        portable.update({k: settings.get(k, "") for k in ("data_source", "gsheet_url", "gsheet_key")})
+
+    files = {}            # laluan sumber -> nama dalam zip (fail sama dalam beberapa slot disimpan sekali)
+    missing = []
+
+    def add_template(path):
+        if not path:
+            return None
+        if not os.path.isfile(path):
+            missing.append(path)
+            return None
+        if path not in files:
+            files[path] = f"templates/{len(files) + 1}_{os.path.basename(path)}"
+        return files[path]
+
+    slots = []
+    for i, preset in enumerate((list(presets) + [None] * 4)[:4]):
+        member = add_template(preset.get("path")) if preset else None
+        slots.append({"slot": i, "name": (preset or {}).get("name", ""), "file": member} if member else None)
+    manifest = {
+        "format": SETTINGS_BUNDLE_FORMAT, "version": SETTINGS_BUNDLE_VERSION, "app_version": APP_VERSION,
+        "created": datetime.datetime.now().isoformat(timespec="seconds"),
+        "include_gsheet": bool(include_gsheet), "slots": slots, "current_template": add_template(current_bg),
+    }
+
+    tmp = dest_path + ".part"
+    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("manifest.json", json.dumps(manifest, indent=2, ensure_ascii=False))
+        z.writestr("settings.json", json.dumps(portable, indent=2, ensure_ascii=False))
+        z.writestr("layout.json", json.dumps(layout, indent=2, ensure_ascii=False))
+        for src, member in files.items():
+            z.write(src, member)
+    os.replace(tmp, dest_path)
+    return {"templates": len(files), "slots": sum(1 for s_ in slots if s_), "missing": missing,
+            "gsheet": bool(include_gsheet and portable.get("gsheet_url"))}
+
+
+def read_settings_bundle(path):
+    """Baca & sahkan fail tetapan. Pulangkan dict {manifest, settings, layout, templates{nama zip: bytes}}."""
+    try:
+        z = zipfile.ZipFile(path)
+    except (zipfile.BadZipFile, OSError) as e:
+        raise SettingsBundleError("Fail ini bukan fail tetapan MyKUSESS yang sah.") from e
+    with z:
+        names = set(z.namelist())
+        if "manifest.json" not in names:
+            raise SettingsBundleError("Fail ini bukan fail tetapan MyKUSESS yang sah.")
+
+        def read_json(name, default):
+            if name not in names:
+                return default
+            if z.getinfo(name).file_size > 5 * 1024 * 1024:
+                raise SettingsBundleError(f"{name} terlalu besar.")
+            return json.loads(z.read(name).decode("utf-8"))
+
+        manifest = read_json("manifest.json", {})
+        if manifest.get("format") != SETTINGS_BUNDLE_FORMAT:
+            raise SettingsBundleError("Fail ini bukan fail tetapan MyKUSESS yang sah.")
+        if int(manifest.get("version", 0)) > SETTINGS_BUNDLE_VERSION:
+            raise SettingsBundleError("Fail tetapan ini dibuat oleh versi aplikasi yang lebih baharu. Kemas kini aplikasi dahulu.")
+
+        templates = {}
+        wanted = [s_.get("file") for s_ in manifest.get("slots", []) if s_] + [manifest.get("current_template")]
+        for member in filter(None, wanted):
+            if member in templates or member not in names or not member.startswith("templates/"):
+                continue
+            if os.path.splitext(member)[1].lower() not in TEMPLATE_EXTS:
+                raise SettingsBundleError(f"Jenis fail templat tidak disokong: {os.path.basename(member)}")
+            if z.getinfo(member).file_size > BUNDLE_MAX_MEMBER_BYTES:
+                raise SettingsBundleError(f"Fail templat {member} terlalu besar.")
+            templates[member] = z.read(member)
+        return {"manifest": manifest, "settings": read_json("settings.json", {}),
+                "layout": read_json("layout.json", {}), "templates": templates}
+
+
+def write_bundle_template(member, data, dest_dir):
+    """Simpan templat dari fail import; hanya nama fail biasa dengan sambungan gambar dibenarkan."""
+    base = os.path.basename(member.replace("\\", "/"))
+    base = re.sub(r"^\d+_", "", base) or "templat.png"
+    stem, ext = os.path.splitext(base)
+    if ext.lower() not in TEMPLATE_EXTS:
+        raise SettingsBundleError(f"Jenis fail templat tidak disokong: {base}")
+    stem = re.sub(r"[^\w\- .()]", "_", stem).strip(" .") or "templat"
+    os.makedirs(dest_dir, exist_ok=True)
+    dest = os.path.join(dest_dir, stem + ext)
+    n = 2
+    while os.path.exists(dest):
+        with open(dest, "rb") as f:
+            if f.read() == data:
+                return dest   # fail sama sudah wujud (import kali kedua)
+        dest = os.path.join(dest_dir, f"{stem} ({n}){ext}")
+        n += 1
+    with open(dest, "wb") as f:
+        f.write(data)
+    return dest
+
+
 class CardPrinterApp(ctk.CTk):
     def __init__(self):
         super().__init__()
+        _icon_cache.clear()  # imej ikon terikat pada tetingkap Tk yang mencipta mereka
 
         self.title(f"MyKUSESS Studio Card Print {APP_VERSION} — Sistem Cetakan Kad Pintar")
         self.geometry("1400x900")
@@ -501,6 +619,13 @@ class CardPrinterApp(ctk.CTk):
             font=ctk.CTkFont(family=FONT_FAMILY_SEMIBOLD, size=12),
         )
         self.btn_check_update.pack(side="left", padx=(0, 12))
+        ctk.CTkButton(
+            right, text="Pindah Tetapan", image=make_icon("folder-input", "#D7E3F1", 14), compound="left",
+            command=self.open_transfer_dialog,
+            fg_color="transparent", hover_color="#1B4D7A", text_color="#E6EEF7", bg_color=COLOR_HEADER_BG2,
+            border_width=1, border_color="#3E6890", corner_radius=9, height=32, width=146,
+            font=ctk.CTkFont(family=FONT_FAMILY_SEMIBOLD, size=12),
+        ).pack(side="left", padx=(0, 10), before=self.btn_check_update)
         ctk.CTkLabel(
             right, text=APP_VERSION, font=ctk.CTkFont(family=FONT_FAMILY_SEMIBOLD, size=12),
             text_color=COLOR_HEADER_BG, fg_color="#7FE0D6", bg_color=COLOR_HEADER_BG2, corner_radius=9, width=58, height=28,
@@ -1025,7 +1150,18 @@ class CardPrinterApp(ctk.CTk):
             self.cbo_printer.set("Tiada Printer Ditemui")
 
     def save_layout_config(self, silent=False):
-        config_data = {
+        config_data = self.layout_config_dict()
+        try:
+            with open(self.config_filename, "w") as f:
+                json.dump(config_data, f, indent=4)
+            if not silent:
+                messagebox.showinfo("Berjaya", "Konfigurasi layout berjaya disimpan!")
+        except Exception as e:
+            if not silent:
+                messagebox.showerror("Ralat", f"Gagal menyimpan fail konfigurasi:\n{str(e)}")
+
+    def layout_config_dict(self):
+        return {
             "img_x": self.cfg_img_x.get(), "img_y": self.cfg_img_y.get(),
             "img_w": self.cfg_img_w.get(), "img_h": self.cfg_img_h.get(),
             "qr_x": self.cfg_qr_x.get(), "qr_y": self.cfg_qr_y.get(), "qr_size": self.cfg_qr_size.get(),
@@ -1039,14 +1175,6 @@ class CardPrinterApp(ctk.CTk):
             "n3_font_file": self.cfg_n3_font_file.get(), "n3_bold": self.cfg_n3_bold.get(), "n3_italic": self.cfg_n3_italic.get(),
             "n3_justify": self.cfg_n3_justify.get()
         }
-        try:
-            with open(self.config_filename, "w") as f:
-                json.dump(config_data, f, indent=4)
-            if not silent:
-                messagebox.showinfo("Berjaya", "Konfigurasi layout berjaya disimpan!")
-        except Exception as e:
-            if not silent:
-                messagebox.showerror("Ralat", f"Gagal menyimpan fail konfigurasi:\n{str(e)}")
 
     def auto_save_layout_config(self, *_args):
         # Dipanggil setiap kali mana-mana medan konfigurasi layout berubah,
@@ -1495,6 +1623,151 @@ class CardPrinterApp(ctk.CTk):
             return False
 
     # ============================================================
+    # PINDAH TETAPAN KE PC LAIN
+    # ============================================================
+    def open_transfer_dialog(self):
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Pindah Tetapan ke PC Lain")
+        dialog.geometry("620x520")
+        dialog.resizable(False, False)
+        dialog.configure(fg_color=COLOR_BG)
+        dialog.transient(self)
+
+        head = ctk.CTkFrame(dialog, fg_color="transparent")
+        head.pack(fill="x", padx=24, pady=(20, 4))
+        ctk.CTkLabel(head, text="Pindah Tetapan ke PC Lain", font=ctk.CTkFont(family=FONT_FAMILY_SEMIBOLD, size=18),
+                     text_color=COLOR_TEXT).pack(anchor="w")
+        self.hint_label(head, "Satu fail .mykusess mengandungi templat kad & slot, susun atur kad, tahun kemasukan "
+                              "dan sambungan Google Sheet. Foto murid tidak disertakan — ia dimuat turun semula secara automatik.",
+                        wraplength=550).pack(anchor="w", pady=(4, 0))
+
+        wrap = ctk.CTkFrame(dialog, fg_color="transparent")
+        wrap.pack(fill="both", expand=True, padx=22, pady=(0, 16))
+        body = self.section_card(wrap, "1", "Eksport dari PC ini", "Simpan semua tetapan ke satu fail", icon="download", pady=(14, 10))
+        include_gs = tk.BooleanVar(value=bool(self.gsheet_url and self.gsheet_key))
+        cb = ctk.CTkCheckBox(body, text="Sertakan sambungan Google Sheet (URL & kunci rahsia)", variable=include_gs,
+                             fg_color=COLOR_ACCENT, hover_color=COLOR_ACCENT_HOVER, border_color=COLOR_BORDER_STRONG,
+                             border_width=2, corner_radius=5, checkbox_width=20, checkbox_height=20,
+                             text_color=COLOR_TEXT, font=ctk.CTkFont(family=FONT_FAMILY, size=12))
+        cb.pack(anchor="w")
+        if not (self.gsheet_url and self.gsheet_key):
+            cb.configure(state="disabled")
+        self.hint_label(body, "Fail yang mengandungi kunci rahsia hanya untuk PC sekolah — jangan kongsi secara umum.",
+                        wraplength=520).pack(anchor="w", pady=(6, 10))
+        self.btn_primary(body, "Eksport ke Fail...", lambda: self.export_settings(include_gs.get(), dialog),
+                         icon="download", width=200).pack(anchor="w")
+
+        body = self.section_card(wrap, "2", "Import ke PC ini", "Guna fail .mykusess dari PC lain", icon="upload", pady=(0, 10))
+        self.hint_label(body, "Tetapan semasa di PC ini akan digantikan. Templat disalin ke folder 'templat' di sebelah aplikasi.",
+                        wraplength=520).pack(anchor="w", pady=(0, 10))
+        self.btn_secondary(body, "Import dari Fail...", lambda: self.import_settings(dialog), icon="upload", width=200).pack(anchor="w")
+
+        dialog.bind("<Escape>", lambda _e: dialog.destroy())
+        dialog.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width() // 2) - (dialog.winfo_width() // 2)
+        y = self.winfo_y() + (self.winfo_height() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
+        dialog.grab_set()
+
+    def export_settings(self, include_gsheet, parent=None):
+        self.auto_save_layout_config()
+        default_name = f"Tetapan MyKUSESS {datetime.date.today():%Y-%m-%d}{SETTINGS_BUNDLE_EXT}"
+        path = filedialog.asksaveasfilename(parent=parent, defaultextension=SETTINGS_BUNDLE_EXT, initialfile=default_name,
+                                            filetypes=[("Tetapan MyKUSESS", f"*{SETTINGS_BUNDLE_EXT}")])
+        if not path:
+            return
+        try:
+            summary = build_settings_bundle(path, self.app_settings_dict(), self.layout_config_dict(),
+                                            self.template_presets, self.bg_path, include_gsheet)
+        except Exception as e:
+            messagebox.showerror("Eksport Gagal", f"Tetapan tidak dapat dieksport:\n{e}", parent=parent)
+            return
+        lines = [f"Tetapan disimpan ke:\n{path}", "",
+                 f"• Templat: {summary['templates']} fail ({summary['slots']} slot)",
+                 "• Susun atur kad",
+                 f"• Google Sheet: {'disertakan' if summary['gsheet'] else 'tidak disertakan'}"]
+        if summary["missing"]:
+            lines += ["", "Fail templat ini tiada dan tidak disertakan:"] + [f"  {m}" for m in summary["missing"]]
+        lines += ["", "Salin fail ini ke PC lain, kemudian pilih Pindah Tetapan → Import."]
+        messagebox.showinfo("Eksport Berjaya", "\n".join(lines), parent=parent)
+
+    def import_settings(self, parent=None):
+        path = filedialog.askopenfilename(parent=parent, filetypes=[("Tetapan MyKUSESS", f"*{SETTINGS_BUNDLE_EXT}"), ("Semua fail", "*.*")])
+        if not path:
+            return
+        try:
+            bundle = read_settings_bundle(path)
+        except (SettingsBundleError, ValueError) as e:
+            messagebox.showerror("Import Gagal", str(e), parent=parent)
+            return
+
+        man, st = bundle["manifest"], bundle["settings"]
+        has_gs = bool(st.get("gsheet_url") and st.get("gsheet_key"))
+        slot_count = sum(1 for s_ in man.get("slots", []) if s_)
+        msg = (f"Import tetapan dari fail ini?\n\nDibuat: {man.get('created', '-')}  (aplikasi {man.get('app_version', '-')})\n"
+               f"• Templat: {slot_count} slot\n• Susun atur kad\n• Google Sheet: {'ya' if has_gs else 'tidak'}\n\n"
+               "Tetapan semasa di PC ini akan digantikan.")
+        if not messagebox.askyesno("Sahkan Import", msg, parent=parent):
+            return
+
+        try:
+            dest_dir = os.path.abspath(TEMPLATE_IMPORT_DIR)
+            written = {m: write_bundle_template(m, data, dest_dir) for m, data in bundle["templates"].items()}
+
+            # Susun atur kad
+            if bundle["layout"]:
+                with open(self.config_filename, "w") as f:
+                    json.dump(bundle["layout"], f, indent=4)
+                self.load_layout_config(silent=True)
+
+            # Slot templat (laluan baharu di PC ini)
+            presets = [None, None, None, None]
+            for s_ in man.get("slots", []):
+                if s_ and s_.get("file") in written and 0 <= int(s_.get("slot", -1)) < 4:
+                    presets[int(s_["slot"])] = {"name": s_.get("name") or os.path.basename(written[s_["file"]]),
+                                                "path": written[s_["file"]]}
+            self.template_presets = presets
+            self.save_template_presets()
+            self.refresh_template_slot_labels()
+            current = written.get(man.get("current_template"))
+            if current:
+                self.bg_path = current
+                self.lbl_bg.configure(text=f"Template: {os.path.basename(current)}", text_color=COLOR_SUCCESS)
+            else:
+                self.use_template_slot(0, silent=True)
+
+            # Tetapan aplikasi
+            if st.get("csv_encoding"):
+                self.cbo_encoding.set(st["csv_encoding"])
+            if st.get("intake_year_t1"):
+                self.ent_intake_year_t1.delete(0, tk.END)
+                self.ent_intake_year_t1.insert(0, st["intake_year_t1"])
+            if has_gs:
+                self.gsheet_url, self.gsheet_key = st["gsheet_url"], st["gsheet_key"]
+                self.lbl_gsheet.configure(text="Google Sheet: Disambung — tekan butang untuk muat data", text_color=COLOR_TEXT_SUBTLE)
+                if st.get("data_source") == "gsheet":
+                    self.data_source = "gsheet"
+            self.save_app_settings()
+        except Exception as e:
+            messagebox.showerror("Import Gagal", f"Tetapan tidak dapat diimport sepenuhnya:\n{e}", parent=parent)
+            return
+
+        if parent is not None:
+            parent.destroy()
+        if self.generated_card is not None:
+            try:
+                self.trigger_refresh_preview()
+            except Exception:
+                pass
+        done = "Tetapan berjaya diimport."
+        if has_gs and self.data_source == "gsheet":
+            done += "\n\nSenarai murid kini dimuat dari Google Sheet (foto dimuat turun kali pertama — beberapa minit)."
+        messagebox.showinfo("Import Berjaya", done)
+        if has_gs and self.data_source == "gsheet":
+            self.notebook.set("   Cetak Pukal (CSV)   ")
+            self.load_from_gsheet(silent=False)
+
+    # ============================================================
     # SUMBER DATA: GOOGLE SHEET
     # ============================================================
     def batch_photo_path(self, photo_filename):
@@ -1722,7 +1995,15 @@ class CardPrinterApp(ctk.CTk):
             self._load_csv_from_path(csv_path, silent=True)
 
     def save_app_settings(self):
-        data = {
+        data = self.app_settings_dict()
+        try:
+            with open(self.app_settings_filename, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=4)
+        except Exception:
+            pass
+
+    def app_settings_dict(self):
+        return {
             "photo_folder": self.photo_folder,
             "csv_path": self.last_csv_path,
             "csv_encoding": self.cbo_encoding.get(),
@@ -1731,11 +2012,6 @@ class CardPrinterApp(ctk.CTk):
             "gsheet_url": self.gsheet_url,
             "gsheet_key": self.gsheet_key,
         }
-        try:
-            with open(self.app_settings_filename, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=4)
-        except Exception:
-            pass
 
     def refresh_treeview(self, filter_text=""):
         self.tree.delete(*self.tree.get_children())

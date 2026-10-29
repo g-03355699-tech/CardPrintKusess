@@ -23,3 +23,8 @@ update_settings.json
 
 # Cache foto murid dari Google Drive (data peribadi) - jangan push
 photo_cache/
+
+# Fail eksport tetapan (mengandungi kunci rahsia Google Sheet) & templat yang diimport - jangan push
+*.mykusess
+*.mykusess.part
+templat/
