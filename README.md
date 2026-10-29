@@ -1,8 +1,15 @@
-# MyKUSESS Studio Card Print v1.09
+# MyKUSESS Studio Card Print v1.10
 
 Aplikasi desktop (Windows, Python + CustomTkinter) untuk menjana dan mencetak kad pengenalan (ID card) guru/murid MyKUSESS, lengkap dengan gambar, kod QR unik, dan maklumat individu. Menyokong cetakan satu-satu atau pukal (batch) daripada fail CSV.
 
 ![Pratonton MyKUSESS Studio Card Print](screenshots/mykusess-studio-preview.png)
+
+## v1.10 — Nota Keluaran
+
+- **Pindah Tetapan ke PC lain** — butang baharu **Pindah Tetapan** di header. **Eksport** membungkus semua tetapan ke satu fail `.mykusess`: templat kad (fail gambar sekali) & slot tersimpan, susun atur kad, tahun kemasukan T1, pengekodan CSV, dan (pilihan) sambungan Google Sheet. **Import** di PC lain memulihkan semuanya — templat disalin ke folder `templat` di sebelah aplikasi dan slot dipautkan semula secara automatik, kemudian senarai murid terus dimuat dari Google Sheet.
+- Foto murid tidak disertakan dalam fail (dimuat turun semula secara automatik), dan laluan khusus PC (folder gambar, fail CSV) tidak dibawa.
+- Fail yang rosak, dari versi aplikasi lebih baharu, atau mengandungi fail bukan gambar ditolak tanpa mengubah apa-apa.
+- ⚠️ Fail `.mykusess` yang menyertakan Google Sheet mengandungi kunci rahsia — simpan hanya di PC sekolah.
 
 ## v1.09 — Nota Keluaran
 
