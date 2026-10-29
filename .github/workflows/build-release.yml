@@ -6,7 +6,8 @@ name: Auto Release (bina exe & terbit)
 #         (nota keluaran diambil dari README "## vX.XX — Nota Keluaran")
 #         -> lampir MyKusessCetak.exe. Komputer pengguna dikemas kini sendiri.
 #  - Release yang diterbitkan secara manual di GitHub juga dibina & dilampir exe.
-#  - Run manual (Actions -> Run workflow): bina sahaja, exe disimpan sebagai artifact.
+#  - Run manual (Actions -> Run workflow): cipta release jika release APP_VERSION belum
+#    wujud; jika sudah wujud, bina sahaja & simpan exe sebagai artifact.
 
 on:
   push:
@@ -50,13 +51,14 @@ jobs:
             }
             $action = "upload"
           }
-          elseif ("${{ github.event_name }}" -eq "push") {
+          else {
+            # push / run manual: cipta release jika versi ini belum diterbitkan
             gh release view $ver --repo "${{ github.repository }}" *> $null
-            if ($LASTEXITCODE -eq 0) {
+            if ($LASTEXITCODE -ne 0) {
+              $action = "create"
+            } elseif ("${{ github.event_name }}" -eq "push") {
               Write-Host "Release $ver sudah wujud - tiada release baharu (APP_VERSION tidak berubah)."
               $action = "skip"
-            } else {
-              $action = "create"
             }
             $global:LASTEXITCODE = 0
           }
