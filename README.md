@@ -8,14 +8,16 @@ Aplikasi desktop (Windows, Python + CustomTkinter) untuk menjana dan mencetak ka
 
 - **Kemas kini automatik (auto-update)** — aplikasi kini menyemak release terkini di GitHub secara senyap setiap kali dibuka. Jika ada versi baharu, dialog dipaparkan dengan nota keluaran dan pilihan **Kemas Kini Sekarang**, **Nanti**, atau **Langkau versi ini**. "Kemas Kini Sekarang" memuat turun exe baharu (dengan bar kemajuan), mengesahkan fail, menggantikan exe semasa, dan memulakan semula aplikasi secara automatik — tetapan, layout dan templat dikekalkan.
 - **Butang "Semak Kemas Kini"** pada bar header untuk semakan manual pada bila-bila masa.
-- **Binaan exe automatik (GitHub Actions)** — setiap kali Release diterbitkan, `MyKusessCetak.exe` dibina di Windows dan dilampirkan pada release tersebut. Jika release tiada aset exe, aplikasi menggunakan `dist/MyKusessCetak.exe` pada tag release itu.
+- **Release automatik (GitHub Actions)** — apabila `APP_VERSION` ditukar dan di-push ke `main`, GitHub membina `MyKusessCetak.exe` di Windows, mencipta Release bertag versi tersebut (nota keluaran diambil dari README ini), dan melampirkan exe. Semua komputer pengguna kemudian menerima kemas kini secara automatik.
 - Nota: pengguna v1.06 dan ke bawah perlu memasang v1.07 secara manual sekali sahaja; selepas itu kemas kini berlaku secara automatik.
 
-### Cara menerbitkan versi baharu (supaya semua komputer dikemas kini)
+### Cara menerbitkan versi baharu (automatik)
 
-1. Kemas kini `APP_VERSION` dalam `MyKusessCetak.py` (cth. `"v1.08"`) dan push.
-2. Di GitHub: **Releases → Draft a new release**, tag **mesti sama** dengan `APP_VERSION` (cth. `v1.08`), tulis nota keluaran, tekan **Publish**.
-3. Tunggu ~3-5 minit sehingga Actions selesai melampirkan `MyKusessCetak.exe`. Komputer pengguna akan menerima kemas kini apabila aplikasi dibuka.
+1. Ubah kod, tukar `APP_VERSION` dalam `MyKusessCetak.py` (cth. `"v1.08"`), dan tambah seksyen `## v1.08 — Nota Keluaran` dalam README.
+2. Push ke `main`. Itu sahaja — GitHub Actions akan bina exe, cipta Release `v1.08` dengan nota keluaran tersebut, dan lampirkan exe (~3-5 minit).
+3. Komputer pengguna akan ditawarkan kemas kini apabila aplikasi dibuka.
+
+Push yang tidak menukar `APP_VERSION` tidak mencipta release baharu.
 
 ## v1.06 — Nota Keluaran
 

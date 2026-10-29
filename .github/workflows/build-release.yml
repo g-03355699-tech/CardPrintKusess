@@ -1,11 +1,17 @@
-name: Bina exe & lampir pada Release
+name: Auto Release (bina exe & terbit)
 
-# Bila satu Release diterbitkan di GitHub, bina MyKusessCetak.exe di Windows
-# dan lampirkannya sebagai aset release. Auto-update dalam aplikasi akan
-# memuat turun aset ini. Boleh juga dijalankan manual (Actions -> Run workflow)
-# untuk menguji binaan tanpa membuat release.
+# Automatik sepenuhnya:
+#  - Push ke main yang menukar APP_VERSION dalam MyKusessCetak.py
+#      -> bina exe di Windows -> cipta Release bertag APP_VERSION
+#         (nota keluaran diambil dari README "## vX.XX — Nota Keluaran")
+#         -> lampir MyKusessCetak.exe. Komputer pengguna dikemas kini sendiri.
+#  - Release yang diterbitkan secara manual di GitHub juga dibina & dilampir exe.
+#  - Run manual (Actions -> Run workflow): bina sahaja, exe disimpan sebagai artifact.
 
 on:
+  push:
+    branches: [main]
+    paths: [MyKusessCetak.py]
   release:
     types: [published]
   workflow_dispatch:
@@ -13,44 +19,100 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: auto-release
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name || github.ref }}
+          ref: ${{ github.event.release.tag_name || github.sha }}
+
+      - name: Baca APP_VERSION & tentukan tindakan
+        id: ver
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $line = Select-String -Path MyKusessCetak.py -Pattern '^APP_VERSION\s*=\s*"([^"]+)"' | Select-Object -First 1
+          $ver = $line.Matches[0].Groups[1].Value
+          "version=$ver" >> $env:GITHUB_OUTPUT
+
+          $action = "build-only"
+          if ("${{ github.event_name }}" -eq "release") {
+            $tag = "${{ github.event.release.tag_name }}"
+            if ($ver -ne $tag) {
+              Write-Error "APP_VERSION ($ver) tidak sama dengan tag release ($tag). Kemas kini APP_VERSION dahulu."
+              exit 1
+            }
+            $action = "upload"
+          }
+          elseif ("${{ github.event_name }}" -eq "push") {
+            gh release view $ver --repo "${{ github.repository }}" *> $null
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host "Release $ver sudah wujud - tiada release baharu (APP_VERSION tidak berubah)."
+              $action = "skip"
+            } else {
+              $action = "create"
+            }
+            $global:LASTEXITCODE = 0
+          }
+          "action=$action" >> $env:GITHUB_OUTPUT
+          Write-Host "APP_VERSION=$ver, tindakan=$action"
 
       - uses: actions/setup-python@v5
+        if: steps.ver.outputs.action != 'skip'
         with:
           python-version: "3.11"
 
       - name: Pasang kebergantungan
+        if: steps.ver.outputs.action != 'skip'
         run: pip install customtkinter pillow qrcode pywin32 pyinstaller
 
-      - name: Semak APP_VERSION sepadan dengan tag release
-        if: github.event_name == 'release'
-        shell: pwsh
-        run: |
-          $tag = "${{ github.event.release.tag_name }}"
-          $line = Select-String -Path MyKusessCetak.py -Pattern '^APP_VERSION\s*=\s*"([^"]+)"' | Select-Object -First 1
-          $ver = $line.Matches[0].Groups[1].Value
-          if ($ver -ne $tag) {
-            Write-Error "APP_VERSION ($ver) tidak sama dengan tag release ($tag). Kemas kini APP_VERSION dahulu."
-            exit 1
-          }
-
       - name: Bina exe
+        if: steps.ver.outputs.action != 'skip'
         run: pyinstaller --noconfirm MyKusessCetak.spec
 
-      - name: Lampir exe pada release
-        if: github.event_name == 'release'
+      - name: Sediakan nota keluaran dari README
+        if: steps.ver.outputs.action == 'create'
+        shell: pwsh
+        run: |
+          $ver = "${{ steps.ver.outputs.version }}"
+          $lines = Get-Content README.md -Encoding utf8
+          $out = @(); $inside = $false
+          foreach ($l in $lines) {
+            if ($l -match '^## ') {
+              if ($inside) { break }
+              if ($l -match "^## $([regex]::Escape($ver))\b") { $inside = $true; continue }
+            }
+            if ($inside) { $out += $l }
+          }
+          if ($out.Count -eq 0) { $out = @("MyKUSESS Studio Card Print $ver") }
+          $out -join "`n" | Out-File -FilePath release_notes.md -Encoding utf8
+
+      - name: Cipta release & lampir exe
+        if: steps.ver.outputs.action == 'create'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.event.release.tag_name }}" dist/MyKusessCetak.exe --clobber
+        run: >
+          gh release create "${{ steps.ver.outputs.version }}" dist/MyKusessCetak.exe
+          --repo "${{ github.repository }}"
+          --target "${{ github.sha }}"
+          --title "${{ steps.ver.outputs.version }}"
+          --notes-file release_notes.md
+          --latest
 
-      - name: Simpan exe sebagai artifact (run manual)
-        if: github.event_name != 'release'
+      - name: Lampir exe pada release sedia ada
+        if: steps.ver.outputs.action == 'upload'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" dist/MyKusessCetak.exe --clobber --repo "${{ github.repository }}"
+
+      - name: Simpan exe sebagai artifact
+        if: steps.ver.outputs.action == 'build-only'
         uses: actions/upload-artifact@v4
         with:
           name: MyKusessCetak-exe
