@@ -6,9 +6,13 @@ import re
 import random
 import string
 import datetime
+import base64
+import concurrent.futures
 import hashlib
 import subprocess
 import threading
+import urllib.error
+import urllib.parse
 import urllib.request
 import webbrowser
 import tkinter as tk
@@ -21,7 +25,7 @@ import win32ui
 import win32con
 from PIL import ImageWin
 
-APP_VERSION = "v1.08"
+APP_VERSION = "v1.09"
 
 # --- AUTO-UPDATE (GitHub Releases) ---
 UPDATE_REPO = "g-03355699-tech/CardPrintKusess"
@@ -83,6 +87,8 @@ ICON_CODES = {
     "scan-line": "e258", "type": "e198", "sparkles": "e412", "hash": "e0ef", "mail": "e10f",
     "calendar": "e063", "database": "e0ad", "rotate-ccw": "e148", "folder-input": "e334",
     "list-checks": "e1d0", "square-dashed": "e1cb",
+    "sheet": "e157", "settings": "e154", "cloud-download": "e089", "link": "e102", "key-round": "e4a3",
+    "plug-zap": "e45c", "table": "e17d",
 }
 
 
@@ -256,6 +262,100 @@ def cleanup_old_exe():
         pass
 
 
+# ============================================================
+#  GOOGLE SHEET (melalui Web App Apps Script — google-apps-script/Code.gs)
+# ============================================================
+PHOTO_CACHE_DIR = "photo_cache"   # salinan tempatan foto dari Drive (data peribadi — gitignored)
+GSHEET_PHOTOS_PER_REQUEST = 4     # <= MAX_PHOTOS_PER_REQUEST dalam Code.gs
+GSHEET_PARALLEL_REQUESTS = 6
+
+
+class GSheetError(Exception):
+    pass
+
+
+def gsheet_call(url, key, action, timeout=90, **params):
+    query = {"key": key, "action": action}
+    query.update(params)
+    full_url = url.strip() + ("&" if "?" in url else "?") + urllib.parse.urlencode(query)
+    req = urllib.request.Request(full_url, headers={"User-Agent": UPDATE_USER_AGENT})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read()
+    except urllib.error.HTTPError as e:
+        raise GSheetError(f"Pelayan Google membalas HTTP {e.code}. Semak URL Web App.") from e
+    except urllib.error.URLError as e:
+        raise GSheetError(f"Tidak dapat menghubungi Google ({e.reason}). Semak sambungan internet.") from e
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except Exception:
+        # Biasanya halaman log masuk Google: Web App tidak dibuka kepada "Anyone"
+        raise GSheetError("Respons bukan data JSON. Pastikan Web App diterbitkan dengan akses "
+                          "'Anyone' (Sesiapa sahaja) dan URL berakhir dengan /exec.")
+    if not data.get("ok"):
+        err = data.get("error") or "ralat tidak diketahui"
+        if err == "unauthorized":
+            raise GSheetError("Kunci rahsia (API Key) tidak sah. Semak Tetapan Google Sheet.")
+        raise GSheetError(err)
+    return data
+
+
+def gsheet_fetch_rows(url, key):
+    """Pulangkan (headers, senarai dict) dari tab Users — bentuk sama seperti csv.DictReader."""
+    data = gsheet_call(url, key, "users")
+    headers = [str(h).strip() for h in data.get("headers", [])]
+    rows = []
+    for values in data.get("rows", []):
+        values = list(values) + [""] * (len(headers) - len(values))
+        rows.append({h: str(v) for h, v in zip(headers, values) if h})
+    return headers, rows
+
+
+def safe_cache_path(cache_root, rel_path):
+    """Laluan fail cache bagi laluan relatif GambarID; None jika laluan mencurigakan."""
+    parts = [p for p in rel_path.replace("\\", "/").split("/") if p not in ("", ".")]
+    if not parts or any(p == ".." or ":" in p for p in parts):
+        return None
+    return os.path.join(cache_root, *parts)
+
+
+def gsheet_download_photos(url, key, rel_paths, cache_root, progress_cb=None):
+    """Muat turun foto ke cache_root (mengekalkan struktur folder). Pulangkan (berjaya, gagal{laluan: sebab})."""
+    batches = [rel_paths[i:i + GSHEET_PHOTOS_PER_REQUEST] for i in range(0, len(rel_paths), GSHEET_PHOTOS_PER_REQUEST)]
+    ok_count, failed, done = 0, {}, 0
+
+    def fetch(batch):
+        return gsheet_call(url, key, "photos", timeout=120, paths=json.dumps(batch)).get("photos", {})
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=GSHEET_PARALLEL_REQUESTS) as pool:
+        futures = {pool.submit(fetch, b): b for b in batches}
+        for fut in concurrent.futures.as_completed(futures):
+            batch = futures[fut]
+            try:
+                photos = fut.result()
+            except Exception as e:
+                photos = {p: {"error": str(e)} for p in batch}
+            for rel in batch:
+                item = photos.get(rel) or {"error": "tiada respons"}
+                dest = safe_cache_path(cache_root, rel)
+                if "data" in item and dest:
+                    try:
+                        os.makedirs(os.path.dirname(dest), exist_ok=True)
+                        tmp = dest + ".part"
+                        with open(tmp, "wb") as f:
+                            f.write(base64.b64decode(item["data"]))
+                        os.replace(tmp, dest)
+                        ok_count += 1
+                    except Exception as e:
+                        failed[rel] = str(e)
+                else:
+                    failed[rel] = item.get("error", "laluan tidak sah")
+                done += 1
+                if progress_cb:
+                    progress_cb(done, len(rel_paths))
+    return ok_count, failed
+
+
 class CardPrinterApp(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -286,6 +386,12 @@ class CardPrinterApp(ctk.CTk):
         self.load_template_presets()
         self.app_settings_filename = "app_settings.json"
         self.last_csv_path = ""  # laluan fail CSV terakhir dimuat naik (untuk pulihkan semasa mula)
+        # Sumber data senarai murid: "csv" (fail) atau "gsheet" (Google Sheet melalui Apps Script)
+        self.data_source = "csv"
+        self.gsheet_url = ""
+        self.gsheet_key = ""
+        self.photo_cache_dir = os.path.abspath(PHOTO_CACHE_DIR)
+        self._gsheet_busy = False
 
         # --- GRID UTAMA (0 = header jenama, 1 = kandungan, 2 = bar status) ---
         self.grid_columnconfigure(0, weight=4, minsize=680)
@@ -576,21 +682,32 @@ class CardPrinterApp(ctk.CTk):
     def build_tab_batch(self):
         pad = self.scroll_area(self.tab_batch)
 
-        body = self.section_card(pad, "1", "Sumber Data", "Folder gambar & senarai murid/guru (CSV)", icon="database")
+        body = self.section_card(pad, "1", "Sumber Data", "Senarai murid/guru dari Google Sheet atau fail CSV", icon="database")
         body.grid_columnconfigure(1, weight=1)
 
-        self.btn_secondary(body, "Pilih Folder Gambar", self.select_photo_folder, icon="folder-open", width=196).grid(row=0, column=0, sticky="w", pady=(0, 10))
+        self.btn_secondary(body, "Pilih Folder Gambar", self.select_photo_folder, icon="folder-open", width=242).grid(row=2, column=0, sticky="w", pady=(0, 14))
         self.lbl_folder = self.status_label(body, "Folder: Tiada dipilih")
-        self.lbl_folder.configure(wraplength=330)
-        self.lbl_folder.grid(row=0, column=1, padx=(14, 0), pady=(0, 10), sticky="w")
+        self.lbl_folder.configure(wraplength=300)
+        self.lbl_folder.grid(row=2, column=1, padx=(14, 0), pady=(0, 14), sticky="w")
 
-        self.btn_primary(body, "Muat Naik CSV", self.load_csv, icon="upload", width=196).grid(row=1, column=0, sticky="w", pady=(0, 14))
+        gs_box = ctk.CTkFrame(body, fg_color="transparent")
+        gs_box.grid(row=0, column=0, sticky="w", pady=(0, 10))
+        self.btn_gsheet = self.btn_primary(gs_box, "Muat dari Google Sheet", lambda: self.load_from_gsheet(), icon="sheet", width=196)
+        self.btn_gsheet.pack(side="left")
+        ctk.CTkButton(gs_box, text="", image=make_icon("settings", COLOR_PRIMARY, 16), width=40, height=40, corner_radius=10,
+                      fg_color=COLOR_SURFACE, hover_color=COLOR_SURFACE_ALT, border_width=1, border_color=COLOR_BORDER_STRONG,
+                      command=self.open_gsheet_settings).pack(side="left", padx=(6, 0))
+        self.lbl_gsheet = self.status_label(body, "Google Sheet: Belum disambung — tekan ikon tetapan")
+        self.lbl_gsheet.configure(wraplength=300)
+        self.lbl_gsheet.grid(row=0, column=1, padx=(14, 0), pady=(0, 10), sticky="w")
+
+        self.btn_secondary(body, "Muat Naik CSV", self.load_csv, icon="upload", width=242).grid(row=1, column=0, sticky="w", pady=(0, 10))
         self.lbl_csv = self.status_label(body, "CSV: Tiada fail dipilih")
-        self.lbl_csv.configure(wraplength=330)
-        self.lbl_csv.grid(row=1, column=1, padx=(14, 0), pady=(0, 14), sticky="w")
+        self.lbl_csv.configure(wraplength=300)
+        self.lbl_csv.grid(row=1, column=1, padx=(14, 0), pady=(0, 10), sticky="w")
 
         opts = ctk.CTkFrame(body, fg_color=COLOR_SURFACE_ALT, corner_radius=10)
-        opts.grid(row=2, column=0, columnspan=2, sticky="ew")
+        opts.grid(row=3, column=0, columnspan=2, sticky="ew")
         opts.grid_columnconfigure(1, weight=1)
         self.field_label(opts, "Pengekodan CSV").grid(row=0, column=0, padx=(14, 10), pady=(12, 6), sticky="w")
         self.cbo_encoding = self.combo_box(opts, ["UTF-8", "UTF-8-SIG (With BOM)", "ANSI (cp1252)"], width=210)
@@ -1334,6 +1451,18 @@ class CardPrinterApp(ctk.CTk):
         intake_year = t1_intake_year - (tahap_num - 1)
         return f"BATCH {intake_year % 100:02d}-{(intake_year + 4) % 100:02d}"
 
+    def _rows_to_records(self, fieldnames, rows, previous=None):
+        """Tukar baris (dict per lajur, dari CSV atau Google Sheet) kepada rekod dalaman.
+        `previous`: rekod lama — status tanda dikekalkan bagi kod QR yang sama semasa muat semula."""
+        is_raw_schema = 'kod_qr' not in fieldnames and self.RAW_SCHEMA_MARKER_COLUMN in fieldnames
+        marks = {r['kod_qr']: r['pilih'] for r in (previous or []) if r.get('kod_qr')}
+        records = []
+        for row in rows:
+            row_data = self._normalize_csv_row(row, is_raw_schema)
+            row_data['pilih'] = marks.get(row_data['kod_qr'], True)  # rekod baharu lalai ditanda
+            records.append(row_data)
+        return records
+
     def _load_csv_from_path(self, csv_path, silent=False):
         # Pengekodan CSV mengikut pilihan pengguna
         enc_option = self.cbo_encoding.get()
@@ -1344,24 +1473,207 @@ class CardPrinterApp(ctk.CTk):
         }
         selected_encoding = encoding_map.get(enc_option, "utf-8")
 
-        self.csv_data = []
         try:
             with open(csv_path, mode='r', encoding=selected_encoding) as f:
                 reader = csv.DictReader(f)
-                fieldnames = reader.fieldnames or []
-                is_raw_schema = 'kod_qr' not in fieldnames and self.RAW_SCHEMA_MARKER_COLUMN in fieldnames
-                for row in reader:
-                    row_data = self._normalize_csv_row(row, is_raw_schema)
-                    row_data['pilih'] = True  # Setiap rekod lalai ditanda
-                    self.csv_data.append(row_data)
+                self.csv_data = self._rows_to_records(reader.fieldnames or [], reader)
             self.refresh_treeview()
             self.lbl_csv.configure(text=f"CSV: {os.path.basename(csv_path)} ({len(self.csv_data)} rekod)", text_color=COLOR_SUCCESS)
             self.last_csv_path = csv_path
+            self.data_source = "csv"
             return True
         except Exception as e:
             if not silent:
                 messagebox.showerror("Ralat CSV", f"Gagal membaca CSV menggunakan {selected_encoding}:\n{str(e)}")
             return False
+
+    # ============================================================
+    # SUMBER DATA: GOOGLE SHEET
+    # ============================================================
+    def batch_photo_path(self, photo_filename):
+        """Foto rekod pukal: cuba folder gambar dipilih, kemudian cache foto Google Drive."""
+        if not photo_filename:
+            return ""
+        candidates = []
+        if self.photo_folder:
+            candidates.append(os.path.join(self.photo_folder, photo_filename))
+        cached = safe_cache_path(self.photo_cache_dir, photo_filename)
+        if cached:
+            candidates.append(cached)
+        for path in candidates:
+            if os.path.exists(path):
+                return path
+        return candidates[0] if candidates else ""
+
+    def open_gsheet_settings(self):
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Tetapan Google Sheet")
+        dialog.geometry("600x420")
+        dialog.resizable(False, False)
+        dialog.configure(fg_color=COLOR_SURFACE)
+        dialog.transient(self)
+
+        head = ctk.CTkFrame(dialog, fg_color="transparent")
+        head.pack(fill="x", padx=24, pady=(22, 0))
+        ctk.CTkLabel(head, text="", image=make_icon("sheet", COLOR_ACCENT, 22)).pack(side="left", padx=(0, 10))
+        ctk.CTkLabel(head, text="Sambungan Google Sheet", font=ctk.CTkFont(family=FONT_FAMILY_SEMIBOLD, size=17),
+                     text_color=COLOR_TEXT).pack(side="left")
+        self.hint_label(dialog, "Tampal URL Web App dan kunci rahsia daripada skrip Apps Script pada sheet "
+                                "'Sistem Outing dan Pulang Bermalam'. Rujuk google-apps-script/PANDUAN.md.",
+                        wraplength=550).pack(anchor="w", padx=24, pady=(8, 14))
+
+        self.field_label(dialog, "URL Web App (berakhir dengan /exec)").pack(anchor="w", padx=24, pady=(0, 6))
+        ent_url = self.text_entry(dialog, "https://script.google.com/macros/s/.../exec", width=552)
+        ent_url.pack(padx=24)
+        if self.gsheet_url:
+            ent_url.insert(0, self.gsheet_url)
+
+        self.field_label(dialog, "Kunci Rahsia (API Key)").pack(anchor="w", padx=24, pady=(14, 6))
+        key_row = ctk.CTkFrame(dialog, fg_color="transparent")
+        key_row.pack(fill="x", padx=24)
+        ent_key = self.text_entry(key_row, "Dijana oleh setupApiKey() dalam Apps Script", width=460)
+        ent_key.configure(show="•")
+        ent_key.pack(side="left", fill="x", expand=True)
+        if self.gsheet_key:
+            ent_key.insert(0, self.gsheet_key)
+
+        def toggle_key():
+            ent_key.configure(show="" if ent_key.cget("show") else "•")
+        self.btn_secondary(key_row, "Papar", toggle_key, icon="eye", width=84).pack(side="left", padx=(8, 0))
+
+        lbl_test = ctk.CTkLabel(dialog, text="", font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=COLOR_TEXT_MUTED,
+                                wraplength=550, justify="left", anchor="w")
+        lbl_test.pack(fill="x", padx=24, pady=(14, 0))
+
+        def on_test():
+            url, key = ent_url.get().strip(), ent_key.get().strip()
+            if not url or not key:
+                lbl_test.configure(text="Sila isi URL dan kunci rahsia.", text_color=COLOR_DANGER)
+                return
+            btn_test.configure(state="disabled")
+            lbl_test.configure(text="Menguji sambungan...", text_color=COLOR_TEXT_MUTED)
+
+            def done(result, error):
+                if not dialog.winfo_exists():
+                    return
+                btn_test.configure(state="normal")
+                if error:
+                    lbl_test.configure(text=f"Gagal: {error}", text_color=COLOR_DANGER)
+                else:
+                    lbl_test.configure(text=f"Berjaya disambung ke '{result.get('spreadsheet', '')}' (tab {result.get('sheet', '')}).",
+                                       text_color=COLOR_SUCCESS)
+            self._run_in_background(lambda: gsheet_call(url, key, "ping", timeout=30), done)
+
+        def on_save():
+            self.gsheet_url = ent_url.get().strip()
+            self.gsheet_key = ent_key.get().strip()
+            self.save_app_settings()
+            if self.gsheet_url and self.gsheet_key:
+                self.lbl_gsheet.configure(text="Google Sheet: Disambung — tekan butang untuk muat data", text_color=COLOR_TEXT_SUBTLE)
+            dialog.destroy()
+
+        btns = ctk.CTkFrame(dialog, fg_color="transparent")
+        btns.pack(side="bottom", fill="x", padx=24, pady=(10, 20))
+        btn_test = self.btn_secondary(btns, "Uji Sambungan", on_test, icon="plug-zap", width=150)
+        btn_test.pack(side="left")
+        self.btn_primary(btns, "Simpan", on_save, icon="save", width=120).pack(side="right")
+        self.btn_secondary(btns, "Batal", dialog.destroy, width=90).pack(side="right", padx=(0, 8))
+        dialog.bind("<Escape>", lambda _e: dialog.destroy())
+
+        dialog.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width() // 2) - (dialog.winfo_width() // 2)
+        y = self.winfo_y() + (self.winfo_height() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
+        dialog.grab_set()
+        ent_url.focus()
+
+    def load_from_gsheet(self, silent=False):
+        if self._gsheet_busy:
+            return
+        if not (self.gsheet_url and self.gsheet_key):
+            if not silent:
+                self.open_gsheet_settings()
+            return
+        self._gsheet_busy = True
+        self.btn_gsheet.configure(state="disabled", text="Memuat...")
+        self.lbl_gsheet.configure(text="Google Sheet: Memuat senarai murid...", text_color=COLOR_TEXT_MUTED)
+        url, key = self.gsheet_url, self.gsheet_key
+
+        def done(result, error):
+            if error is not None:
+                self._gsheet_busy = False
+                self.btn_gsheet.configure(state="normal", text="Muat dari Google Sheet")
+                self.lbl_gsheet.configure(text=f"Google Sheet: Gagal — {error}", text_color=COLOR_DANGER)
+                if not silent:
+                    messagebox.showerror("Google Sheet", f"Gagal memuat data dari Google Sheet:\n\n{error}")
+                return
+            headers, rows = result
+            self.csv_data = self._rows_to_records(headers, rows, previous=self.csv_data if self.data_source == "gsheet" else None)
+            self.data_source = "gsheet"
+            self.refresh_treeview(self.ent_search.get())
+            self.lbl_csv.configure(text="CSV: Tidak digunakan (sumber: Google Sheet)", text_color=COLOR_TEXT_SUBTLE)
+            if not self.photo_folder:
+                self.lbl_folder.configure(text="Folder: Pilihan — foto diambil terus dari Google Drive", text_color=COLOR_TEXT_SUBTLE)
+            loaded_at = datetime.datetime.now().strftime("%H:%M")
+            self._gsheet_summary = f"Google Sheet: {len(self.csv_data)} rekod · dimuat {loaded_at}"
+            self.lbl_gsheet.configure(text=self._gsheet_summary, text_color=COLOR_SUCCESS)
+            self.save_app_settings()
+            self._sync_gsheet_photos(url, key)
+
+        self._run_in_background(lambda: gsheet_fetch_rows(url, key), done)
+
+    def _sync_gsheet_photos(self, url, key):
+        """Muat turun foto yang belum ada (di folder dipilih atau cache) secara latar belakang."""
+        needed = sorted({r['fail_gambar'] for r in self.csv_data
+                         if r.get('fail_gambar') and not os.path.exists(self.batch_photo_path(r['fail_gambar']))
+                         and safe_cache_path(self.photo_cache_dir, r['fail_gambar'])})
+        if not needed:
+            self._finish_gsheet_sync(0, {})
+            return
+
+        prog = {"done": 0, "total": len(needed)}
+        self.btn_gsheet.configure(text="Memuat foto...")
+
+        def tick():
+            if not self._gsheet_busy:
+                return
+            self.lbl_gsheet.configure(text=f"{self._gsheet_summary}\nFoto: {prog['done']}/{prog['total']} dimuat turun...",
+                                      text_color=COLOR_TEXT_MUTED)
+            self.after(400, tick)
+
+        def work():
+            return gsheet_download_photos(url, key, needed, self.photo_cache_dir,
+                                          progress_cb=lambda d, t: prog.update(done=d))
+
+        def done(result, error):
+            if error is not None:
+                self._finish_gsheet_sync(0, {"*": str(error)})
+            else:
+                self._finish_gsheet_sync(*result)
+
+        tick()
+        self._run_in_background(work, done, poll_ms=300)
+
+    def _finish_gsheet_sync(self, ok_count, failed):
+        self._gsheet_busy = False
+        self.btn_gsheet.configure(state="normal", text="Muat Semula dari Google Sheet")
+        text = self._gsheet_summary
+        if ok_count:
+            text += f"\nFoto: {ok_count} baharu dimuat turun"
+        if failed:
+            text += f"\nFoto: {len(failed)} gagal (cth. {next(iter(failed.values()))})"
+            self.lbl_gsheet.configure(text=text, text_color="#B45309")
+        else:
+            self.lbl_gsheet.configure(text=text, text_color=COLOR_SUCCESS)
+        # Muat semula pratonton murid yang sedang dipaparkan supaya foto yang baru tiba kelihatan
+        qr = getattr(self, "_preview_kod_qr", None)
+        record = next((r for r in self.csv_data if r['kod_qr'] == qr), None) if (qr and ok_count) else None
+        if record:
+            try:
+                self.update_preview_ui(self.make_card_image(record['kod_qr'], record['batch'], record['nama_penuh'],
+                                                            record['email_moe'], record['fail_gambar'], is_batch=True))
+            except Exception:
+                pass
 
     # ============================================================
     # TETAPAN APLIKASI TERSIMPAN (folder gambar & fail CSV terakhir)
@@ -1389,8 +1701,17 @@ class CardPrinterApp(ctk.CTk):
             self.ent_intake_year_t1.delete(0, tk.END)
             self.ent_intake_year_t1.insert(0, intake_year_t1)
 
+        self.gsheet_url = data.get("gsheet_url", "")
+        self.gsheet_key = data.get("gsheet_key", "")
+        if self.gsheet_url and self.gsheet_key:
+            self.lbl_gsheet.configure(text="Google Sheet: Disambung — tekan butang untuk muat data")
+
         csv_path = data.get("csv_path", "")
-        if csv_path and os.path.exists(csv_path):
+        if data.get("data_source") == "gsheet" and self.gsheet_url and self.gsheet_key:
+            # Sumber terakhir ialah Google Sheet: muat semula data terkini selepas UI siap
+            self.data_source = "gsheet"
+            self.after(1200, lambda: self.load_from_gsheet(silent=True))
+        elif csv_path and os.path.exists(csv_path):
             self._load_csv_from_path(csv_path, silent=True)
 
     def save_app_settings(self):
@@ -1399,6 +1720,9 @@ class CardPrinterApp(ctk.CTk):
             "csv_path": self.last_csv_path,
             "csv_encoding": self.cbo_encoding.get(),
             "intake_year_t1": self.ent_intake_year_t1.get().strip(),
+            "data_source": self.data_source,
+            "gsheet_url": self.gsheet_url,
+            "gsheet_key": self.gsheet_key,
         }
         try:
             with open(self.app_settings_filename, "w", encoding="utf-8") as f:
@@ -1482,6 +1806,7 @@ class CardPrinterApp(ctk.CTk):
         try:
             card = self.make_card_image(record['kod_qr'], record['batch'], record['nama_penuh'], record['email_moe'], record['fail_gambar'], is_batch=True)
             self.update_preview_ui(card)
+            self._preview_kod_qr = record['kod_qr']
         except Exception as e:
             self.lbl_preview.configure(image="", text=f"Gagal Preview:\n{str(e)}", text_color=COLOR_DANGER)
             self.btn_global_print.configure(state="disabled")
@@ -1550,7 +1875,7 @@ class CardPrinterApp(ctk.CTk):
 
     def make_card_image(self, qr_code, batch, full_name, email_moe, photo_filename, is_batch=False):
         if not self.bg_path: raise Exception("Sila pilih gambar Template Kad terlebih dahulu!")
-        p_path = photo_filename if not is_batch else os.path.join(self.photo_folder, photo_filename)
+        p_path = photo_filename if not is_batch else self.batch_photo_path(photo_filename)
         has_photo = bool(photo_filename) and os.path.exists(p_path)
 
         img_x, img_y = int(self.cfg_img_x.get()), int(self.cfg_img_y.get())
@@ -1656,7 +1981,7 @@ class CardPrinterApp(ctk.CTk):
         if not selected_records:
             messagebox.showwarning("Ralat", "Sila tanda [x] pada senarai murid terlebih dahulu!")
             return
-        if not self.bg_path or not self.photo_folder:
+        if not self.bg_path or not (self.photo_folder or self.data_source == "gsheet"):
             messagebox.showwarning("Ralat", "Sila pastikan Template Kad dan Folder Gambar telah dipilih!")
             return
         if not messagebox.askyesno("Sahkan", f"Cetak {len(selected_records)} keping kad murid yang ditandakan?"): return
@@ -1687,7 +2012,7 @@ class CardPrinterApp(ctk.CTk):
         if not selected_records:
             messagebox.showwarning("Ralat", "Sila tanda [x] pada sekurang-kurangnya satu murid untuk menjana PDF!")
             return
-        if not self.bg_path or not self.photo_folder:
+        if not self.bg_path or not (self.photo_folder or self.data_source == "gsheet"):
             messagebox.showwarning("Ralat", "Sila pastikan Template Kad dan Folder Gambar telah dipilih!")
             return
 
