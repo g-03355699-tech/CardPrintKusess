@@ -5,7 +5,7 @@ a = Analysis(
     ['MyKusessCetak.py'],
     pathex=[],
     binaries=[],
-    datas=[('logo.ico', '.')],
+    datas=[('logo.ico', '.'), ('assets/lucide-icons.ttf', 'assets')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

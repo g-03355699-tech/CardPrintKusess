@@ -21,7 +21,7 @@ import win32ui
 import win32con
 from PIL import ImageWin
 
-APP_VERSION = "v1.07"
+APP_VERSION = "v1.08"
 
 # --- AUTO-UPDATE (GitHub Releases) ---
 UPDATE_REPO = "g-03355699-tech/CardPrintKusess"
@@ -34,28 +34,100 @@ UPDATE_SETTINGS_FILENAME = "update_settings.json"
 UPDATE_USER_AGENT = f"MyKusessCetak/{APP_VERSION}"
 
 # ============================================================
-#  TEMA & GAYA — reka bentuk profesional seakan Badgy Studio
+#  TEMA & GAYA — identiti visual "Studio": navy korporat + aksen teal
 # ============================================================
 ctk.set_appearance_mode("Light")   # tema cerah konsisten (elak konflik warna hardcode dgn mod gelap)
 ctk.set_default_color_theme("blue")
 
 FONT_FAMILY = "Segoe UI"
+FONT_FAMILY_SEMIBOLD = "Segoe UI Semibold"   # tajuk & butang (lebih kemas daripada "bold" tiruan)
 
-COLOR_BG            = "#F1F5F9"   # latar belakang tetingkap
-COLOR_HEADER_BG      = "#0F172A"  # bar header navy gelap
-COLOR_SURFACE        = "#FFFFFF"  # permukaan panel
-COLOR_SURFACE_ALT    = "#EEF2F7"  # permukaan sekunder (tab tidak aktif, dsb.)
-COLOR_BORDER         = "#E2E8F0"
-COLOR_TEXT           = "#1E293B"
-COLOR_TEXT_MUTED     = "#64748B"
-COLOR_ACCENT         = "#2F6FED"
-COLOR_ACCENT_HOVER   = "#2557C7"
-COLOR_SUCCESS        = "#16A34A"
-COLOR_SUCCESS_HOVER  = "#128A3E"
-COLOR_DANGER         = "#DC2626"
-COLOR_DANGER_HOVER   = "#B91C1C"
+COLOR_BG             = "#EEF2F7"  # latar belakang tetingkap
+COLOR_HEADER_BG      = "#0B1B33"  # header: navy gelap (kiri)...
+COLOR_HEADER_BG2     = "#123E66"  # ...ke biru korporat (kanan) — kecerunan
+COLOR_HEADER_TEXT    = "#F8FAFC"
+COLOR_HEADER_MUTED   = "#93A8C3"
+COLOR_SURFACE        = "#FFFFFF"  # permukaan kad / panel
+COLOR_SURFACE_ALT    = "#F4F7FA"  # permukaan sekunder (medan, jubin, kawasan pratonton)
+COLOR_BORDER         = "#DCE3EB"
+COLOR_BORDER_STRONG  = "#C7D2DE"
+COLOR_TEXT           = "#0F1C2E"
+COLOR_TEXT_MUTED     = "#5B6B7F"
+COLOR_TEXT_SUBTLE    = "#8A98AA"
+COLOR_PRIMARY        = "#102C4F"  # navy — butang utama, lencana langkah, tab aktif
+COLOR_PRIMARY_HOVER  = "#0A1F3A"
+COLOR_ACCENT         = "#0E8A86"  # teal — tindakan cetak (CTA), kotak semak, bar kemajuan
+COLOR_ACCENT_HOVER   = "#0B706D"
+COLOR_ACCENT_SOFT    = "#E2F3F2"
+COLOR_SEG_TRACK      = "#E1E7EF"  # trek kawalan bersegmen (tab, justifikasi)
+COLOR_SEG_HOVER      = "#D4DCE6"
+COLOR_SUCCESS        = "#15803D"
+COLOR_SUCCESS_HOVER  = "#116B33"
+COLOR_SUCCESS_SOFT   = "#E7F6EC"
+COLOR_DANGER         = "#C62828"
+COLOR_DANGER_HOVER   = "#A51F1F"
+COLOR_DANGER_SOFT    = "#FDECEC"
 COLOR_NEUTRAL        = "#64748B"
 COLOR_NEUTRAL_HOVER  = "#475569"
+
+# --- IKON (fon Lucide, lesen ISC — lihat assets/LUCIDE-LICENSE.txt) ---
+# Ikon dilukis daripada fon ikon ke imej supaya tajam & seragam di semua mesin,
+# menggantikan emoji yang rupanya berbeza-beza mengikut versi Windows.
+ICON_FONT_FILE = os.path.join("assets", "lucide-icons.ttf")
+ICON_CODES = {
+    "printer": "e141", "upload": "e19e", "folder-open": "e247", "download": "e0b2", "save": "e14d",
+    "refresh-cw": "e145", "search": "e151", "user": "e19f", "image": "e0f6", "square-check": "e559",
+    "square": "e167", "id-card": "e617", "users": "e1a4", "file-text": "e0cc", "layout-template": "e207",
+    "shuffle": "e15e", "x": "e1b2", "check": "e06c", "eye": "e0ba", "file-spreadsheet": "e326",
+    "sliders-horizontal": "e29a", "qr-code": "e1df", "circle-check": "e226", "info": "e0f9",
+    "scan-line": "e258", "type": "e198", "sparkles": "e412", "hash": "e0ef", "mail": "e10f",
+    "calendar": "e063", "database": "e0ad", "rotate-ccw": "e148", "folder-input": "e334",
+    "list-checks": "e1d0", "square-dashed": "e1cb",
+}
+
+
+def resource_path(relative):
+    """Laluan fail sumber yang dibundel (berfungsi dari kod sumber & dari exe PyInstaller)."""
+    base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, relative)
+
+
+_icon_cache = {}
+
+
+def make_icon(name, color="#FFFFFF", size=16):
+    """CTkImage bagi ikon Lucide; None jika fon ikon tiada (butang tetap berfungsi tanpa ikon)."""
+    key = (name, color, size)
+    if key in _icon_cache:
+        return _icon_cache[key]
+    icon = None
+    try:
+        font = ImageFont.truetype(resource_path(ICON_FONT_FILE), size * 4)
+        img = Image.new("RGBA", (size * 4, size * 4), (0, 0, 0, 0))
+        ImageDraw.Draw(img).text((size * 2, size * 2), chr(int(ICON_CODES[name], 16)), font=font, fill=color, anchor="mm")
+        img = img.resize((size * 2, size * 2), Image.Resampling.LANCZOS)
+        icon = ctk.CTkImage(light_image=img, dark_image=img, size=(size, size))
+    except Exception:
+        icon = None
+    _icon_cache[key] = icon
+    return icon
+
+
+def make_horizontal_gradient(width, height, left_hex, right_hex, flat_from=0.62):
+    """Imej kecerunan mendatar; warna kanan kekal rata selepas `flat_from` supaya
+    widget di sebelah kanan header boleh berlatar warna pepejal yang sepadan."""
+    def rgb(h):
+        h = h.lstrip("#")
+        return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+    l, r = rgb(left_hex), rgb(right_hex)
+    stop = max(1, int(width * flat_from))
+    row = Image.new("RGB", (width, 1))
+    px = row.load()
+    for x in range(width):
+        t = min(x / stop, 1.0)
+        t = t * t * (3 - 2 * t)  # smoothstep — peralihan lebih lembut
+        px[x, 0] = tuple(int(l[i] + (r[i] - l[i]) * t) for i in range(3))
+    return row.resize((width, height), Image.Resampling.NEAREST)
 
 
 # ============================================================
@@ -190,20 +262,18 @@ class CardPrinterApp(ctk.CTk):
 
         self.title(f"MyKUSESS Studio Card Print {APP_VERSION} — Sistem Cetakan Kad Pintar")
         self.geometry("1400x900")
+        self.minsize(1240, 780)
         self.configure(fg_color=COLOR_BG)
 
         # --- KETETAPAN IKON PERISIAN ---
         self.app_icon_path = None
-        try:
-            if hasattr(sys, '_MEIPASS'):
-                base_path = sys._MEIPASS
-            else:
-                base_path = os.path.abspath(".")
-            icon_path = os.path.join(base_path, "logo.ico")
-            self.iconbitmap(icon_path)
+        icon_path = resource_path("logo.ico")
+        if os.path.exists(icon_path):
             self.app_icon_path = icon_path
-        except Exception:
-            pass
+            try:
+                self.iconbitmap(icon_path)
+            except Exception:
+                pass
 
         self.bg_path = ""
         self.photo_folder = ""
@@ -217,37 +287,46 @@ class CardPrinterApp(ctk.CTk):
         self.app_settings_filename = "app_settings.json"
         self.last_csv_path = ""  # laluan fail CSV terakhir dimuat naik (untuk pulihkan semasa mula)
 
-        # --- GRID UTAMA (baris 0 = header jenama, baris 1 = kandungan) ---
-        self.grid_columnconfigure(0, weight=4, minsize=700)
-        self.grid_columnconfigure(1, weight=5, minsize=550)
+        # --- GRID UTAMA (0 = header jenama, 1 = kandungan, 2 = bar status) ---
+        self.grid_columnconfigure(0, weight=4, minsize=680)
+        self.grid_columnconfigure(1, weight=5, minsize=540)
         self.grid_rowconfigure(0, weight=0)
         self.grid_rowconfigure(1, weight=1)
+        self.grid_rowconfigure(2, weight=0)
 
         self.build_header()
 
         # --- BAHAGIAN KIRI: TAB KAWALAN ---
         self.notebook = ctk.CTkTabview(
             self,
-            corner_radius=14,
-            fg_color=COLOR_SURFACE,
-            border_width=1,
-            border_color=COLOR_BORDER,
-            segmented_button_fg_color=COLOR_SURFACE_ALT,
-            segmented_button_selected_color=COLOR_ACCENT,
-            segmented_button_selected_hover_color=COLOR_ACCENT_HOVER,
-            segmented_button_unselected_color=COLOR_SURFACE_ALT,
-            segmented_button_unselected_hover_color=COLOR_BORDER,
-            text_color=COLOR_TEXT,
+            corner_radius=0,
+            fg_color=COLOR_BG,
+            border_width=0,
+            segmented_button_fg_color=COLOR_SEG_TRACK,
+            segmented_button_selected_color=COLOR_SURFACE,
+            segmented_button_selected_hover_color=COLOR_SURFACE,
+            segmented_button_unselected_color=COLOR_SEG_TRACK,
+            segmented_button_unselected_hover_color=COLOR_SEG_HOVER,
+            text_color=COLOR_PRIMARY,
+            anchor="w",
         )
-        self.notebook.grid(row=1, column=0, sticky="nsew", padx=(15, 8), pady=(0, 15))
+        self.notebook.grid(row=1, column=0, sticky="nsew", padx=(18, 9), pady=(6, 14))
+        try:
+            self.notebook._segmented_button.configure(
+                font=ctk.CTkFont(family=FONT_FAMILY_SEMIBOLD, size=13), height=38, corner_radius=10,
+                border_width=4, text_color_disabled=COLOR_TEXT_SUBTLE,
+            )
+        except Exception:
+            pass
 
-        self.tab_single = self.notebook.add(" 🪪  Cetak Satu-Satu ")
-        self.tab_batch = self.notebook.add(" 📇  Cetak Pukal (CSV) ")
-        self.tab_config = self.notebook.add(" ⚙️  Konfigurasi Layout ")
+        self.tab_single = self.notebook.add("   Cetak Satu-Satu   ")
+        self.tab_batch = self.notebook.add("   Cetak Pukal (CSV)   ")
+        self.tab_config = self.notebook.add("   Konfigurasi Layout   ")
+        self.notebook.set("   Cetak Pukal (CSV)   ")
 
         # --- BAHAGIAN KANAN: PANEL PREVIEW & PRINTER ---
-        self.right_frame = ctk.CTkFrame(self, corner_radius=14, fg_color=COLOR_SURFACE, border_width=1, border_color=COLOR_BORDER)
-        self.right_frame.grid(row=1, column=1, sticky="nsew", padx=(8, 15), pady=(0, 15))
+        self.right_frame = ctk.CTkFrame(self, corner_radius=16, fg_color=COLOR_SURFACE, border_width=1, border_color=COLOR_BORDER)
+        self.right_frame.grid(row=1, column=1, sticky="nsew", padx=(9, 18), pady=(18, 14))
 
         self.build_tab_single()
         self.build_tab_batch()
@@ -256,6 +335,7 @@ class CardPrinterApp(ctk.CTk):
         self.use_template_slot(0, silent=True)
         self.restore_app_settings()
         self.build_preview_panel()
+        self.build_status_bar()
 
         self.protocol("WM_DELETE_WINDOW", self.on_app_close)
 
@@ -275,383 +355,502 @@ class CardPrinterApp(ctk.CTk):
     #  KOMPONEN UI BOLEH GUNA SEMULA (helper widget & gaya)
     # ============================================================
     def build_header(self):
-        header = ctk.CTkFrame(self, height=64, corner_radius=0, fg_color=COLOR_HEADER_BG)
-        header.grid(row=0, column=0, columnspan=2, sticky="ew")
-        header.grid_propagate(False)
+        HEADER_H = 72
+        self.header_canvas = tk.Canvas(self, height=HEADER_H, highlightthickness=0, bd=0, bg=COLOR_HEADER_BG)
+        self.header_canvas.grid(row=0, column=0, columnspan=2, sticky="ew")
+        self._header_bg_item = self.header_canvas.create_image(0, 0, anchor="nw")
+        self._header_photo = None
 
-        left = ctk.CTkFrame(header, fg_color="transparent")
-        left.pack(side="left", padx=20, pady=8)
-
+        x = 24
         if self.app_icon_path:
             try:
                 logo_img = Image.open(self.app_icon_path).convert("RGBA")
-                logo_img.thumbnail((36, 36))
-                ctk_logo = ctk.CTkImage(light_image=logo_img, dark_image=logo_img, size=logo_img.size)
-                ctk.CTkLabel(left, image=ctk_logo, text="").pack(side="left", padx=(0, 10))
+                logo_img.thumbnail((40, 40), Image.Resampling.LANCZOS)
+                self._header_logo = ImageTk.PhotoImage(logo_img)
+                self.header_canvas.create_image(x, HEADER_H // 2, image=self._header_logo, anchor="w")
+                x += logo_img.width + 14
             except Exception:
                 pass
 
-        title_box = ctk.CTkFrame(left, fg_color="transparent")
-        title_box.pack(side="left")
-        ctk.CTkLabel(title_box, text="MyKUSESS Studio Card Print", font=ctk.CTkFont(family=FONT_FAMILY, size=18, weight="bold"), text_color="#FFFFFF").pack(anchor="w")
-        ctk.CTkLabel(title_box, text="Sistem Cetakan Kad MyKusess", font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color="#94A3B8").pack(anchor="w")
+        self.header_canvas.create_text(x, 25, anchor="w", text="MyKUSESS Studio Card Print", fill=COLOR_HEADER_TEXT,
+                                       font=(FONT_FAMILY_SEMIBOLD, 17))
+        self.header_canvas.create_text(x, 49, anchor="w", text="Sistem Cetakan Kad Pintar  ·  SM Sains Kuala Selangor",
+                                       fill=COLOR_HEADER_MUTED, font=(FONT_FAMILY, 10))
 
-        right = ctk.CTkFrame(header, fg_color="transparent")
-        right.pack(side="right", padx=20, pady=8)
-        ctk.CTkLabel(
-            right, text=APP_VERSION, font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
-            text_color="#FFFFFF", fg_color=COLOR_ACCENT, corner_radius=10, width=52, height=24,
-        ).pack(side="right")
+        right = ctk.CTkFrame(self.header_canvas, fg_color=COLOR_HEADER_BG2, bg_color=COLOR_HEADER_BG2)
+        self._header_right = self.header_canvas.create_window(0, HEADER_H // 2, window=right, anchor="e")
+
         self.btn_check_update = ctk.CTkButton(
-            right, text="⟳  Semak Kemas Kini", command=lambda: self.check_for_updates(manual=True),
-            fg_color="transparent", hover_color="#1E293B", text_color="#CBD5E1",
-            border_width=1, border_color="#334155", corner_radius=8, height=28, width=150,
-            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            right, text="Semak Kemas Kini", image=make_icon("refresh-cw", "#D7E3F1", 14), compound="left",
+            command=lambda: self.check_for_updates(manual=True),
+            fg_color="transparent", hover_color="#1B4D7A", text_color="#E6EEF7", bg_color=COLOR_HEADER_BG2,
+            border_width=1, border_color="#3E6890", corner_radius=9, height=32, width=164,
+            font=ctk.CTkFont(family=FONT_FAMILY_SEMIBOLD, size=12),
         )
-        self.btn_check_update.pack(side="right", padx=(0, 12))
+        self.btn_check_update.pack(side="left", padx=(0, 12))
+        ctk.CTkLabel(
+            right, text=APP_VERSION, font=ctk.CTkFont(family=FONT_FAMILY_SEMIBOLD, size=12),
+            text_color=COLOR_HEADER_BG, fg_color="#7FE0D6", bg_color=COLOR_HEADER_BG2, corner_radius=9, width=58, height=28,
+        ).pack(side="left")
+
+        def on_resize(event):
+            w = max(event.width, 1)
+            self._header_photo = ImageTk.PhotoImage(make_horizontal_gradient(w, HEADER_H, COLOR_HEADER_BG, COLOR_HEADER_BG2))
+            self.header_canvas.itemconfigure(self._header_bg_item, image=self._header_photo)
+            self.header_canvas.coords(self._header_right, w - 24, HEADER_H // 2)
+
+        self.header_canvas.bind("<Configure>", on_resize)
+
+    def section_card(self, parent, number, title, subtitle=None, icon=None, pady=(0, 14)):
+        """Kad seksyen putih bernombor. Pulangkan bingkai isi (body) untuk diletakkan widget."""
+        card = ctk.CTkFrame(parent, fg_color=COLOR_SURFACE, corner_radius=14, border_width=1, border_color=COLOR_BORDER)
+        card.pack(fill="x", pady=pady, padx=2)
+
+        head = ctk.CTkFrame(card, fg_color="transparent")
+        head.pack(fill="x", padx=18, pady=(14, 10))
+        ctk.CTkLabel(
+            head, text=str(number), width=28, height=28, corner_radius=8, fg_color=COLOR_PRIMARY,
+            text_color="#FFFFFF", font=ctk.CTkFont(family=FONT_FAMILY_SEMIBOLD, size=13),
+        ).pack(side="left", padx=(0, 12), anchor="n" if subtitle else "center")
+        text_box = ctk.CTkFrame(head, fg_color="transparent")
+        text_box.pack(side="left", fill="x", expand=True, anchor="w")
+        ctk.CTkLabel(text_box, text=title, font=ctk.CTkFont(family=FONT_FAMILY_SEMIBOLD, size=15),
+                     text_color=COLOR_TEXT, height=20).pack(anchor="w")
+        if subtitle:
+            ctk.CTkLabel(text_box, text=subtitle, font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                         text_color=COLOR_TEXT_MUTED, height=16, justify="left", anchor="w").pack(anchor="w")
+        if icon:
+            ctk.CTkLabel(head, text="", image=make_icon(icon, COLOR_TEXT_SUBTLE, 18)).pack(side="right")
+
+        ctk.CTkFrame(card, height=1, fg_color=COLOR_BORDER).pack(fill="x")
+        body = ctk.CTkFrame(card, fg_color="transparent")
+        body.pack(fill="x", padx=18, pady=(14, 18))
+        return body
 
     def section_header(self, parent, number, text, subtitle=None):
-        row = ctk.CTkFrame(parent, fg_color="transparent")
-        row.pack(anchor="w", fill="x", pady=(18, 10))
-        ctk.CTkLabel(
-            row, text=str(number), width=22, height=22, corner_radius=11, fg_color=COLOR_ACCENT,
-            text_color="#FFFFFF", font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
-        ).pack(side="left", padx=(0, 8), anchor="n" if subtitle else "center")
-        if subtitle:
-            text_box = ctk.CTkFrame(row, fg_color="transparent")
-            text_box.pack(side="left", anchor="w")
-            ctk.CTkLabel(text_box, text=text, font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"), text_color=COLOR_TEXT).pack(anchor="w")
-            ctk.CTkLabel(text_box, text=subtitle, font=ctk.CTkFont(family=FONT_FAMILY, size=10), text_color=COLOR_TEXT_MUTED).pack(anchor="w")
-        else:
-            ctk.CTkLabel(row, text=text, font=ctk.CTkFont(family=FONT_FAMILY, size=14, weight="bold"), text_color=COLOR_TEXT).pack(side="left")
-        return row
+        # Dikekalkan untuk keserasian; reka bentuk semasa menggunakan section_card.
+        return self.section_card(parent, number, text, subtitle)
 
     def field_label(self, parent, text):
-        return ctk.CTkLabel(parent, text=text, font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=COLOR_TEXT_MUTED)
+        return ctk.CTkLabel(parent, text=text, font=ctk.CTkFont(family=FONT_FAMILY_SEMIBOLD, size=12), text_color=COLOR_TEXT_MUTED,
+                            anchor="w", justify="left")
+
+    def hint_label(self, parent, text, wraplength=420):
+        return ctk.CTkLabel(parent, text=text, font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color=COLOR_TEXT_SUBTLE,
+                            wraplength=wraplength, justify="left", anchor="w")
 
     def status_label(self, parent, text):
-        return ctk.CTkLabel(parent, text=text, text_color=COLOR_DANGER, font=ctk.CTkFont(family=FONT_FAMILY, size=11), wraplength=400, justify="left")
+        # Status belum lengkap dipaparkan neutral (bukan merah) — ralat sebenar tetap guna COLOR_DANGER.
+        return ctk.CTkLabel(parent, text=text, text_color=COLOR_TEXT_SUBTLE, font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                            wraplength=400, justify="left", anchor="w")
 
-    def btn_primary(self, parent, text, command, **kw):
+    def text_entry(self, parent, placeholder="", width=200, height=38):
+        return ctk.CTkEntry(parent, width=width, height=height, corner_radius=9, border_width=1, border_color=COLOR_BORDER,
+                            fg_color=COLOR_SURFACE_ALT, text_color=COLOR_TEXT, placeholder_text=placeholder,
+                            placeholder_text_color=COLOR_TEXT_SUBTLE, font=ctk.CTkFont(family=FONT_FAMILY, size=13))
+
+    def combo_box(self, parent, values, width=200, command=None):
+        return ctk.CTkComboBox(parent, values=values, width=width, height=38, corner_radius=9, border_width=0,
+                               fg_color=COLOR_SEG_TRACK, button_color=COLOR_SEG_TRACK,
+                               button_hover_color=COLOR_SEG_HOVER, text_color=COLOR_TEXT,
+                               dropdown_fg_color=COLOR_SURFACE, dropdown_hover_color=COLOR_ACCENT_SOFT,
+                               dropdown_text_color=COLOR_TEXT, font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+                               dropdown_font=ctk.CTkFont(family=FONT_FAMILY, size=13), command=command)
+
+    def _btn(self, parent, text, command, icon, icon_color, **kw):
+        if icon:
+            kw.setdefault("image", make_icon(icon, icon_color, 16))
+            kw.setdefault("compound", "left")
+        kw.setdefault("corner_radius", 10)
+        return ctk.CTkButton(parent, text=text, command=command, **kw)
+
+    def btn_primary(self, parent, text, command, icon=None, **kw):
+        kw.setdefault("height", 40)
+        return self._btn(parent, text, command, icon, "#FFFFFF", fg_color=COLOR_PRIMARY, hover_color=COLOR_PRIMARY_HOVER,
+                         text_color="#FFFFFF", text_color_disabled="#AEBBCB",
+                         font=ctk.CTkFont(family=FONT_FAMILY_SEMIBOLD, size=13), **kw)
+
+    def btn_cta(self, parent, text, command, icon=None, **kw):
+        """Tindakan utama skrin (cetak) — teal supaya menonjol daripada butang navy biasa."""
+        kw.setdefault("height", 46)
+        return self._btn(parent, text, command, icon, "#FFFFFF", fg_color=COLOR_ACCENT, hover_color=COLOR_ACCENT_HOVER,
+                         text_color="#FFFFFF", text_color_disabled="#CFE7E5",
+                         font=ctk.CTkFont(family=FONT_FAMILY_SEMIBOLD, size=14), **kw)
+
+    def btn_secondary(self, parent, text, command, icon=None, **kw):
         kw.setdefault("height", 38)
-        return ctk.CTkButton(parent, text=text, command=command, fg_color=COLOR_ACCENT, hover_color=COLOR_ACCENT_HOVER,
-                              font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"), corner_radius=8, **kw)
+        return self._btn(parent, text, command, icon, COLOR_PRIMARY, fg_color=COLOR_SURFACE, hover_color=COLOR_SURFACE_ALT,
+                         text_color=COLOR_PRIMARY, border_width=1, border_color=COLOR_BORDER_STRONG,
+                         font=ctk.CTkFont(family=FONT_FAMILY_SEMIBOLD, size=12), **kw)
 
-    def btn_secondary(self, parent, text, command, **kw):
+    def btn_success(self, parent, text, command, icon=None, **kw):
+        kw.setdefault("height", 40)
+        return self._btn(parent, text, command, icon, "#FFFFFF", fg_color=COLOR_SUCCESS, hover_color=COLOR_SUCCESS_HOVER,
+                         font=ctk.CTkFont(family=FONT_FAMILY_SEMIBOLD, size=13), **kw)
+
+    def btn_danger(self, parent, text, command, icon=None, **kw):
         kw.setdefault("height", 36)
-        return ctk.CTkButton(parent, text=text, command=command, fg_color="transparent", hover_color=COLOR_SURFACE_ALT,
-                              text_color=COLOR_TEXT, border_width=1, border_color=COLOR_BORDER,
-                              font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"), corner_radius=8, **kw)
+        return self._btn(parent, text, command, icon, COLOR_DANGER, fg_color=COLOR_SURFACE, hover_color=COLOR_DANGER_SOFT,
+                         text_color=COLOR_DANGER, border_width=1, border_color="#F1C6C6",
+                         font=ctk.CTkFont(family=FONT_FAMILY_SEMIBOLD, size=12), **kw)
 
-    def btn_success(self, parent, text, command, **kw):
-        kw.setdefault("height", 38)
-        return ctk.CTkButton(parent, text=text, command=command, fg_color=COLOR_SUCCESS, hover_color=COLOR_SUCCESS_HOVER,
-                              font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"), corner_radius=8, **kw)
-
-    def btn_danger(self, parent, text, command, **kw):
-        kw.setdefault("height", 34)
-        return ctk.CTkButton(parent, text=text, command=command, fg_color="#FDECEC", hover_color="#FBD5D5",
-                              text_color=COLOR_DANGER, font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"), corner_radius=8, **kw)
+    def scroll_area(self, parent):
+        area = ctk.CTkScrollableFrame(parent, fg_color="transparent", scrollbar_button_color=COLOR_BORDER_STRONG,
+                                      scrollbar_button_hover_color=COLOR_TEXT_SUBTLE)
+        area.pack(fill="both", expand=True, padx=0, pady=(6, 0))
+        return area
 
     # ============================================================
     # TAB 1: CETAK SATU-SATU
     # ============================================================
     def build_tab_single(self):
-        pad = ctk.CTkScrollableFrame(self.tab_single, fg_color="transparent")
-        pad.pack(fill="both", expand=True, padx=8)
+        pad = self.scroll_area(self.tab_single)
 
-        self.section_header(pad, "1", "Tetapan Asas Template")
-        self.btn_secondary(pad, "🖼  Pilih Template Kad (Background)", self.select_bg, width=320).pack(anchor="w", pady=5)
-        self.lbl_bg = self.status_label(pad, "Template: Tiada fail dipilih")
-        self.lbl_bg.pack(anchor="w", pady=2)
+        body = self.section_card(pad, "1", "Templat Kad", "Latar belakang kad & templat tersimpan", icon="layout-template")
+        row = ctk.CTkFrame(body, fg_color="transparent")
+        row.pack(fill="x")
+        self.btn_secondary(row, "Pilih Templat Kad", self.select_bg, icon="image", width=190).pack(side="left")
+        self.lbl_bg = self.status_label(row, "Template: Tiada fail dipilih")
+        self.lbl_bg.pack(side="left", padx=14)
 
-        self.field_label(pad, "Templat Tersimpan (sehingga 4 slot) — 'Guna' untuk muat, 💾 untuk simpan template semasa").pack(anchor="w", pady=(12, 4))
-        slot_frame = ctk.CTkFrame(pad, fg_color=COLOR_SURFACE_ALT, corner_radius=10)
-        slot_frame.pack(anchor="w", pady=2, fill="x")
+        self.field_label(body, "Templat tersimpan").pack(anchor="w", pady=(16, 2))
+        self.hint_label(body, "Tekan 'Guna' untuk muat templat, ikon simpan untuk simpan templat semasa ke slot.", wraplength=620).pack(anchor="w", pady=(0, 8))
+        slot_frame = ctk.CTkFrame(body, fg_color="transparent")
+        slot_frame.pack(fill="x")
         self.lbl_template_slots = []
         for i in range(4):
-            col = ctk.CTkFrame(slot_frame, fg_color="transparent")
-            col.grid(row=0, column=i, padx=8, pady=8, sticky="n")
-            lbl = ctk.CTkLabel(col, text=f"Slot {i+1}: Kosong", font=ctk.CTkFont(family=FONT_FAMILY, size=10),
-                                text_color=COLOR_TEXT_MUTED, wraplength=95, justify="center")
-            lbl.pack(pady=(0, 4))
+            slot_frame.grid_columnconfigure(i, weight=1, uniform="slot")
+            tile = ctk.CTkFrame(slot_frame, fg_color=COLOR_SURFACE_ALT, corner_radius=10, border_width=1, border_color=COLOR_BORDER)
+            tile.grid(row=0, column=i, padx=(0 if i == 0 else 5, 0 if i == 3 else 5), sticky="nsew")
+            lbl = ctk.CTkLabel(tile, text=f"Slot {i+1}: Kosong", font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                               text_color=COLOR_TEXT_MUTED, wraplength=120, justify="center", height=34)
+            lbl.pack(padx=8, pady=(10, 6), fill="x")
             self.lbl_template_slots.append(lbl)
-            btn_row = ctk.CTkFrame(col, fg_color="transparent")
-            btn_row.pack()
-            ctk.CTkButton(btn_row, text="Guna", width=50, height=26, fg_color=COLOR_ACCENT, hover_color=COLOR_ACCENT_HOVER,
-                          font=ctk.CTkFont(family=FONT_FAMILY, size=10, weight="bold"), corner_radius=6,
-                          command=lambda idx=i: self.use_template_slot(idx)).pack(side="left", padx=(0, 3))
-            ctk.CTkButton(btn_row, text="💾", width=30, height=26, fg_color="transparent", hover_color=COLOR_SURFACE,
-                          text_color=COLOR_TEXT, border_width=1, border_color=COLOR_BORDER, corner_radius=6,
-                          command=lambda idx=i: self.save_template_slot(idx)).pack(side="left")
+            btn_row = ctk.CTkFrame(tile, fg_color="transparent")
+            btn_row.pack(pady=(0, 10))
+            ctk.CTkButton(btn_row, text="Guna", width=58, height=28, fg_color=COLOR_PRIMARY, hover_color=COLOR_PRIMARY_HOVER,
+                          font=ctk.CTkFont(family=FONT_FAMILY_SEMIBOLD, size=11), corner_radius=7,
+                          command=lambda idx=i: self.use_template_slot(idx)).pack(side="left", padx=(0, 4))
+            ctk.CTkButton(btn_row, text="", image=make_icon("save", COLOR_PRIMARY, 14), width=30, height=28,
+                          fg_color=COLOR_SURFACE, hover_color=COLOR_BORDER, border_width=1, border_color=COLOR_BORDER_STRONG,
+                          corner_radius=7, command=lambda idx=i: self.save_template_slot(idx)).pack(side="left")
         self.refresh_template_slot_labels()
 
-        self.section_header(pad, "2", "Maklumat Individu")
-        self.btn_secondary(pad, "👤  Pilih Foto Guru/Murid", self.select_single_photo, width=320).pack(anchor="w", pady=5)
-        self.lbl_photo = self.status_label(pad, "Foto: Tiada fail dipilih")
-        self.lbl_photo.pack(anchor="w", pady=2)
+        body = self.section_card(pad, "2", "Maklumat Individu", "Foto dan butiran yang akan dicetak pada kad", icon="user")
+        row = ctk.CTkFrame(body, fg_color="transparent")
+        row.pack(fill="x")
+        self.btn_secondary(row, "Pilih Foto Guru/Murid", self.select_single_photo, icon="user", width=190).pack(side="left")
+        self.lbl_photo = self.status_label(row, "Foto: Tiada fail dipilih")
+        self.lbl_photo.pack(side="left", padx=14)
 
-        self.field_label(pad, "Kod Unik QR").pack(anchor="w", pady=(14, 4))
-        qr_input_frame = ctk.CTkFrame(pad, fg_color="transparent")
-        qr_input_frame.pack(anchor="w", pady=2, fill="x")
-        self.ent_qr_code = ctk.CTkEntry(qr_input_frame, width=280, height=34, border_color=COLOR_BORDER, placeholder_text="Contoh: wpwj727")
-        self.ent_qr_code.pack(side="left", padx=(0, 10))
-        self.btn_generate_qr = self.btn_secondary(qr_input_frame, "🎲 Jana Kod", self.generate_random_qr_code, width=110, height=34)
+        form = ctk.CTkFrame(body, fg_color="transparent")
+        form.pack(fill="x", pady=(16, 0))
+        form.grid_columnconfigure(0, weight=1, uniform="f")
+        form.grid_columnconfigure(1, weight=1, uniform="f")
+
+        self.field_label(form, "Kod Unik QR").grid(row=0, column=0, sticky="w", pady=(0, 6))
+        qr_input_frame = ctk.CTkFrame(form, fg_color="transparent")
+        qr_input_frame.grid(row=1, column=0, sticky="ew", padx=(0, 8))
+        self.ent_qr_code = self.text_entry(qr_input_frame, "Contoh: wpwj727", width=150)
+        self.ent_qr_code.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        self.btn_generate_qr = self.btn_secondary(qr_input_frame, "Jana", self.generate_random_qr_code, icon="shuffle", width=84)
         self.btn_generate_qr.pack(side="left")
 
-        self.field_label(pad, "Batch (Huruf Besar)").pack(anchor="w", pady=(12, 4))
-        self.ent_batch = ctk.CTkEntry(pad, width=400, height=34, border_color=COLOR_BORDER, placeholder_text="Contoh: BATCH 2026")
-        self.ent_batch.pack(anchor="w", pady=2)
+        self.field_label(form, "Batch (Huruf Besar)").grid(row=0, column=1, sticky="w", padx=(8, 0), pady=(0, 6))
+        self.ent_batch = self.text_entry(form, "Contoh: BATCH 2026")
+        self.ent_batch.grid(row=1, column=1, sticky="ew", padx=(8, 0))
 
-        self.field_label(pad, "Nama Penuh").pack(anchor="w", pady=(12, 4))
-        self.ent_full_name = ctk.CTkEntry(pad, width=400, height=34, border_color=COLOR_BORDER, placeholder_text="Contoh: AMINAH BINTI ALI")
-        self.ent_full_name.pack(anchor="w", pady=2)
+        self.field_label(form, "Nama Penuh").grid(row=2, column=0, columnspan=2, sticky="w", pady=(14, 6))
+        self.ent_full_name = self.text_entry(form, "Contoh: AMINAH BINTI ALI")
+        self.ent_full_name.grid(row=3, column=0, columnspan=2, sticky="ew")
 
-        self.field_label(pad, "Email MOE").pack(anchor="w", pady=(12, 4))
-        self.ent_email_moe = ctk.CTkEntry(pad, width=400, height=34, border_color=COLOR_BORDER, placeholder_text="Contoh: m-1234567@moe-dl.edu.my")
-        self.ent_email_moe.pack(anchor="w", pady=2)
+        self.field_label(form, "Email MOE").grid(row=4, column=0, columnspan=2, sticky="w", pady=(14, 6))
+        self.ent_email_moe = self.text_entry(form, "Contoh: m-1234567@moe-dl.edu.my")
+        self.ent_email_moe.grid(row=5, column=0, columnspan=2, sticky="ew")
 
-        self.btn_primary(pad, "JANA PREVIEW", self.generate_single_preview, width=320, height=42).pack(pady=25)
+        self.btn_primary(pad, "Jana Pratonton Kad", self.generate_single_preview, icon="eye", height=46).pack(fill="x", padx=2, pady=(2, 16))
 
     # ============================================================
     # TAB 2: CETAK PUKAL (BATCH CSV)
     # ============================================================
     def build_tab_batch(self):
-        pad = ctk.CTkScrollableFrame(self.tab_batch, fg_color="transparent")
-        pad.pack(fill="both", expand=True, padx=8)
+        pad = self.scroll_area(self.tab_batch)
 
-        self.section_header(pad, "1", "Sediakan Tetapan Fail")
+        body = self.section_card(pad, "1", "Sumber Data", "Folder gambar & senarai murid/guru (CSV)", icon="database")
+        body.grid_columnconfigure(1, weight=1)
 
-        setting_frame = ctk.CTkFrame(pad, fg_color=COLOR_SURFACE_ALT, corner_radius=10)
-        setting_frame.pack(fill="x", pady=5)
+        self.btn_secondary(body, "Pilih Folder Gambar", self.select_photo_folder, icon="folder-open", width=196).grid(row=0, column=0, sticky="w", pady=(0, 10))
+        self.lbl_folder = self.status_label(body, "Folder: Tiada dipilih")
+        self.lbl_folder.configure(wraplength=330)
+        self.lbl_folder.grid(row=0, column=1, padx=(14, 0), pady=(0, 10), sticky="w")
 
-        self.btn_secondary(setting_frame, "📁 Pilih Folder Gambar", self.select_photo_folder, width=180).grid(row=0, column=0, padx=10, pady=10)
-        self.lbl_folder = self.status_label(setting_frame, "Folder: Tiada dipilih")
-        self.lbl_folder.configure(wraplength=200)
-        self.lbl_folder.grid(row=0, column=1, padx=5, pady=10, sticky="w")
+        self.btn_primary(body, "Muat Naik CSV", self.load_csv, icon="upload", width=196).grid(row=1, column=0, sticky="w", pady=(0, 14))
+        self.lbl_csv = self.status_label(body, "CSV: Tiada fail dipilih")
+        self.lbl_csv.configure(wraplength=330)
+        self.lbl_csv.grid(row=1, column=1, padx=(14, 0), pady=(0, 14), sticky="w")
 
-        self.field_label(setting_frame, "Format CSV Encoding").grid(row=1, column=0, padx=10, pady=5, sticky="e")
-        self.cbo_encoding = ctk.CTkComboBox(setting_frame, values=["UTF-8", "UTF-8-SIG (With BOM)", "ANSI (cp1252)"], width=190, button_color=COLOR_ACCENT, border_color=COLOR_BORDER)
+        opts = ctk.CTkFrame(body, fg_color=COLOR_SURFACE_ALT, corner_radius=10)
+        opts.grid(row=2, column=0, columnspan=2, sticky="ew")
+        opts.grid_columnconfigure(1, weight=1)
+        self.field_label(opts, "Pengekodan CSV").grid(row=0, column=0, padx=(14, 10), pady=(12, 6), sticky="w")
+        self.cbo_encoding = self.combo_box(opts, ["UTF-8", "UTF-8-SIG (With BOM)", "ANSI (cp1252)"], width=210)
+        self.cbo_encoding.configure(fg_color=COLOR_SURFACE, button_color=COLOR_SURFACE, button_hover_color=COLOR_BORDER)
         self.cbo_encoding.set("UTF-8")
-        self.cbo_encoding.grid(row=1, column=1, padx=5, pady=5, sticky="w")
+        self.cbo_encoding.grid(row=0, column=1, padx=(0, 14), pady=(12, 6), sticky="w")
 
-        self.btn_primary(setting_frame, "⬆  Muat Naik CSV", self.load_csv, width=180, height=34).grid(row=2, column=0, padx=10, pady=10)
-        self.lbl_csv = self.status_label(setting_frame, "CSV: Tiada fail dipilih")
-        self.lbl_csv.grid(row=2, column=1, padx=5, pady=10, sticky="w")
-
-        self.field_label(setting_frame, "Tahun Kemasukan Tingkatan 1").grid(row=3, column=0, padx=10, pady=5, sticky="e")
-        intake_frame = ctk.CTkFrame(setting_frame, fg_color="transparent")
-        intake_frame.grid(row=3, column=1, padx=5, pady=5, sticky="w")
-        self.ent_intake_year_t1 = ctk.CTkEntry(intake_frame, width=80, height=30, border_color=COLOR_BORDER)
+        self.field_label(opts, "Tahun Kemasukan T1").grid(row=1, column=0, padx=(14, 10), pady=(6, 12), sticky="w")
+        intake_frame = ctk.CTkFrame(opts, fg_color="transparent")
+        intake_frame.grid(row=1, column=1, padx=(0, 14), pady=(6, 12), sticky="w")
+        self.ent_intake_year_t1 = self.text_entry(intake_frame, width=90)
+        self.ent_intake_year_t1.configure(fg_color=COLOR_SURFACE)
         self.ent_intake_year_t1.insert(0, str(datetime.date.today().year))
         self.ent_intake_year_t1.pack(side="left")
         self.ent_intake_year_t1.bind("<FocusOut>", lambda _e: self.save_app_settings())
-        self.status_label(intake_frame, "  (untuk kira lajur Batch daripada Tahap/Tgkt bagi CSV mentah)").pack(side="left")
+        self.hint_label(intake_frame, "Untuk kira Batch daripada Tahap/Tgkt (CSV mentah)", wraplength=320).pack(side="left", padx=(10, 0))
 
-        search_frame = ctk.CTkFrame(pad, fg_color="transparent")
-        search_frame.pack(fill="x", pady=(14, 5))
-        self.field_label(search_frame, "🔍 Carian Nama / Batch").pack(side="left", padx=(0, 8))
-        self.ent_search = ctk.CTkEntry(search_frame, placeholder_text="Masukkan nama kata kunci...", width=250, height=32, border_color=COLOR_BORDER)
-        self.ent_search.pack(side="left", padx=5)
+        body = self.section_card(pad, "2", "Senarai Murid", "Klik baris untuk tanda & pratonton · Dwi-klik Nama Penuh / Email MOE untuk sunting", icon="users")
+
+        toolbar = ctk.CTkFrame(body, fg_color="transparent")
+        toolbar.pack(fill="x", pady=(0, 10))
+        search_box = ctk.CTkFrame(toolbar, fg_color=COLOR_SURFACE_ALT, corner_radius=9, border_width=1, border_color=COLOR_BORDER, height=38)
+        search_box.pack(side="left", fill="x", expand=True)
+        ctk.CTkLabel(search_box, text="", image=make_icon("search", COLOR_TEXT_SUBTLE, 15), width=20).pack(side="left", padx=(12, 2))
+        self.ent_search = ctk.CTkEntry(search_box, placeholder_text="Cari nama atau batch...", height=34, border_width=0,
+                                       fg_color=COLOR_SURFACE_ALT, text_color=COLOR_TEXT, placeholder_text_color=COLOR_TEXT_SUBTLE,
+                                       font=ctk.CTkFont(family=FONT_FAMILY, size=13))
+        self.ent_search.pack(side="left", fill="x", expand=True, padx=(0, 4), pady=2)
         self.ent_search.bind("<KeyRelease>", self.filter_search)
-        self.btn_secondary(search_frame, "Kosongkan", self.clear_search, width=90, height=32).pack(side="left", padx=5)
+        ctk.CTkButton(search_box, text="", image=make_icon("x", COLOR_TEXT_MUTED, 14), width=28, height=28, corner_radius=7,
+                      fg_color="transparent", hover_color=COLOR_BORDER, command=self.clear_search).pack(side="left", padx=(0, 6))
 
-        self.section_header(pad, "2", "Senarai Murid", subtitle="(Klik untuk tanda/pilih & Preview; Dwi-klik Nama Penuh/Email MOE untuk edit)")
-
-        selection_btn_frame = ctk.CTkFrame(pad, fg_color="transparent")
-        selection_btn_frame.pack(fill="x", pady=(0, 5))
-        self.btn_secondary(selection_btn_frame, "✅  Pilih Semua", self.select_all_records, width=140, height=32).pack(side="left", padx=(0, 8))
-        self.btn_danger(selection_btn_frame, "⬜  Nyahpilih Semua", self.deselect_all_records, width=140).pack(side="left")
+        self.btn_secondary(toolbar, "Pilih Semua", self.select_all_records, icon="square-check", width=128).pack(side="left", padx=(10, 6))
+        self.btn_danger(toolbar, "Nyahpilih", self.deselect_all_records, icon="square", width=112, height=38).pack(side="left")
 
         style = ttk.Style()
         style.theme_use("clam")
-        style.configure("Treeview", font=(FONT_FAMILY, 9), rowheight=27, background=COLOR_SURFACE, fieldbackground=COLOR_SURFACE, foreground=COLOR_TEXT, borderwidth=0)
-        style.configure("Treeview.Heading", font=(FONT_FAMILY, 9, "bold"), background=COLOR_SURFACE_ALT, foreground=COLOR_TEXT, relief="flat")
-        style.map("Treeview", background=[("selected", COLOR_ACCENT)], foreground=[("selected", "#FFFFFF")])
+        style.configure("Treeview", font=(FONT_FAMILY, 9), rowheight=30, background=COLOR_SURFACE, fieldbackground=COLOR_SURFACE,
+                        foreground=COLOR_TEXT, borderwidth=0, relief="flat")
+        style.configure("Treeview.Heading", font=(FONT_FAMILY_SEMIBOLD, 8), background=COLOR_SURFACE_ALT, foreground=COLOR_TEXT_MUTED,
+                        relief="flat", borderwidth=0, padding=(8, 8))
+        style.map("Treeview.Heading", background=[("active", COLOR_BORDER)])
+        style.map("Treeview", background=[("selected", COLOR_PRIMARY)], foreground=[("selected", "#FFFFFF")])
+        style.layout("Treeview", [("Treeview.treearea", {"sticky": "nswe"})])
+        style.configure("Studio.Vertical.TScrollbar", background=COLOR_BORDER_STRONG, troughcolor=COLOR_SURFACE_ALT,
+                        bordercolor=COLOR_SURFACE_ALT, lightcolor=COLOR_BORDER_STRONG, darkcolor=COLOR_BORDER_STRONG,
+                        arrowcolor=COLOR_TEXT_MUTED, gripcount=0, arrowsize=12)
+        style.map("Studio.Vertical.TScrollbar", background=[("active", COLOR_TEXT_SUBTLE)])
 
-        tree_frame = ctk.CTkFrame(pad, fg_color="transparent")
-        tree_frame.pack(fill="both", expand=True, pady=5)
+        tree_frame = ctk.CTkFrame(body, fg_color=COLOR_BORDER, corner_radius=10)
+        tree_frame.pack(fill="both", expand=True)
+        tree_inner = tk.Frame(tree_frame, bg=COLOR_SURFACE, bd=0, highlightthickness=0)
+        tree_inner.pack(fill="both", expand=True, padx=1, pady=1)
 
-        self.tree = ttk.Treeview(tree_frame, columns=("Pilih", "QR", "Batch", "Penuh", "Email"), show="headings", height=8)
-        self.tree.heading("Pilih", text="Tanda")
-        self.tree.heading("QR", text="Kod QR")
-        self.tree.heading("Batch", text="Batch")
-        self.tree.heading("Penuh", text="Nama Penuh")
-        self.tree.heading("Email", text="Email MOE")
-        self.tree.column("Pilih", width=60, anchor="center")
-        self.tree.column("QR", width=80)
-        self.tree.column("Batch", width=90)
-        self.tree.column("Penuh", width=200)
-        self.tree.column("Email", width=180)
+        self.tree = ttk.Treeview(tree_inner, columns=("Pilih", "QR", "Batch", "Penuh", "Email"), show="headings", height=9)
+        self.tree.heading("Pilih", text="TANDA")
+        self.tree.heading("QR", text="KOD QR", anchor="w")
+        self.tree.heading("Batch", text="BATCH", anchor="w")
+        self.tree.heading("Penuh", text="NAMA PENUH", anchor="w")
+        self.tree.heading("Email", text="EMAIL MOE", anchor="w")
+        self.tree.column("Pilih", width=58, minwidth=50, anchor="center", stretch=False)
+        self.tree.column("QR", width=96, minwidth=60)
+        self.tree.column("Batch", width=84, minwidth=60)
+        self.tree.column("Penuh", width=200, minwidth=120)
+        self.tree.column("Email", width=150, minwidth=100)
 
         # Slider skrol menegak di sebelah senarai supaya senarai panjang (ratusan
         # rekod CSV) boleh diskrol pantas dengan menyeret, bukan sekadar roda tetikus.
-        tree_scroll = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
+        tree_scroll = ttk.Scrollbar(tree_inner, orient="vertical", command=self.tree.yview, style="Studio.Vertical.TScrollbar")
         self.tree.configure(yscrollcommand=tree_scroll.set)
 
         self.tree.pack(side="left", fill="both", expand=True)
         tree_scroll.pack(side="right", fill="y")
 
-        # Warna latar baris mengikut status tanda — hijau lembut bila dipilih,
+        # Warna latar baris mengikut status tanda — teal lembut bila dipilih,
         # supaya senarai mudah dibaca sekali pandang (bukan sekadar simbol teks).
-        self.tree.tag_configure("row_on", background="#EAFBF1")
+        self.tree.tag_configure("row_on", background=COLOR_ACCENT_SOFT)
         self.tree.tag_configure("row_off", background=COLOR_SURFACE)
 
         self.tree.bind("<ButtonRelease-1>", self.on_tree_click)
         self.tree.bind("<Double-1>", self.on_tree_double_click)
 
-        self.progress_frame = ctk.CTkFrame(pad, fg_color="transparent")
-        self.progress_frame.pack(fill="x", pady=10)
-        self.lbl_progress_status = ctk.CTkLabel(self.progress_frame, text="Status: Sedia", font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=COLOR_TEXT_MUTED)
-        self.lbl_progress_status.pack(anchor="w")
-        self.progress_bar = ctk.CTkProgressBar(self.progress_frame, progress_color=COLOR_ACCENT, fg_color=COLOR_SURFACE_ALT)
-        self.progress_bar.pack(fill="x", pady=5)
+        self.lbl_tree_count = ctk.CTkLabel(body, text="Tiada rekod dimuat", font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                                           text_color=COLOR_TEXT_MUTED, anchor="w")
+        self.lbl_tree_count.pack(fill="x", pady=(8, 0))
+
+        body = self.section_card(pad, "3", "Cetak & Eksport", "Cetak terus ke pencetak kad atau jana PDF bagi rekod bertanda", icon="printer")
+        self.progress_frame = ctk.CTkFrame(body, fg_color="transparent")
+        self.progress_frame.pack(fill="x", pady=(0, 12))
+        self.lbl_progress_status = ctk.CTkLabel(self.progress_frame, text="Status: Sedia", font=ctk.CTkFont(family=FONT_FAMILY_SEMIBOLD, size=12),
+                                                text_color=COLOR_TEXT_MUTED, anchor="w")
+        self.lbl_progress_status.pack(fill="x")
+        self.progress_bar = ctk.CTkProgressBar(self.progress_frame, progress_color=COLOR_ACCENT, fg_color=COLOR_SURFACE_ALT, height=8, corner_radius=4)
+        self.progress_bar.pack(fill="x", pady=(6, 0))
         self.progress_bar.set(0)
 
-        btn_action_frame = ctk.CTkFrame(pad, fg_color="transparent")
-        btn_action_frame.pack(fill="x", pady=5)
-        self.btn_primary(btn_action_frame, "🖨  CETAK SEMUA TANDA [X]", self.print_batch, height=42).pack(side="left", fill="x", expand=True, padx=(0, 5))
-        self.btn_secondary(btn_action_frame, "📄  MUAT TURUN PDF TANDA [X]", self.download_pdf_batch, height=42).pack(side="left", fill="x", expand=True, padx=(5, 0))
+        btn_action_frame = ctk.CTkFrame(body, fg_color="transparent")
+        btn_action_frame.pack(fill="x")
+        btn_action_frame.grid_columnconfigure(0, weight=3, uniform="act")
+        btn_action_frame.grid_columnconfigure(1, weight=2, uniform="act")
+        self.btn_cta(btn_action_frame, "Cetak Semua Ditanda", self.print_batch, icon="printer").grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        self.btn_secondary(btn_action_frame, "Muat Turun PDF", self.download_pdf_batch, icon="file-text", height=46).grid(row=0, column=1, sticky="ew", padx=(6, 0))
+        ctk.CTkFrame(pad, height=6, fg_color="transparent").pack()
 
     # ============================================================
     # TAB 3: KONFIGURASI LAYOUT (SCROLLABLE)
     # ============================================================
     def build_tab_config(self):
-        self.scrollable_frame = ctk.CTkScrollableFrame(self.tab_config, fg_color="transparent")
-        self.scrollable_frame.pack(fill="both", expand=True, padx=8)
-
-        ctk.CTkLabel(self.scrollable_frame, text="Ubah Suai Saiz, Kedudukan & Gaya Font", font=ctk.CTkFont(family=FONT_FAMILY, size=15, weight="bold"), text_color=COLOR_TEXT).grid(row=0, column=0, columnspan=4, pady=(10, 15), sticky="w")
+        self.scrollable_frame = self.scroll_area(self.tab_config)
+        pad = self.scrollable_frame
 
         FONT_OPTIONS = ["arial.ttf", "calibri.ttf", "times.ttf", "tahoma.ttf", "verdana.ttf", "cour.ttf"]
 
+        def grid_body(body):
+            body.grid_columnconfigure(0, minsize=118)
+            body.grid_columnconfigure(1, weight=1, uniform="cfgval")
+            body.grid_columnconfigure(2, minsize=124)
+            body.grid_columnconfigure(3, weight=1, uniform="cfgval")
+            return body
+
         # 1. Gambar Foto
-        self.config_group_label(self.scrollable_frame, "GAMBAR FOTO — Kotak Sempadan").grid(row=1, column=0, columnspan=4, sticky="w", pady=(6, 5))
-        self.cfg_img_x = self.create_cfg_entry(self.scrollable_frame, "Kedudukan X:", "40", row=2, col=0)
-        self.cfg_img_y = self.create_cfg_entry(self.scrollable_frame, "Kedudukan Y:", "250", row=2, col=2)
-        self.cfg_img_w = self.create_cfg_entry(self.scrollable_frame, "Maks Lebar (W):", "240", row=3, col=0)
-        self.cfg_img_h = self.create_cfg_entry(self.scrollable_frame, "Maks Tinggi (H):", "310", row=3, col=2)
+        body = grid_body(self.section_card(pad, "1", "Gambar Foto", "Kotak sempadan foto pada kanvas 1013 × 638 px", icon="user"))
+        self.cfg_img_x = self.create_cfg_entry(body, "Kedudukan X", "40", row=0, col=0)
+        self.cfg_img_y = self.create_cfg_entry(body, "Kedudukan Y", "250", row=0, col=2)
+        self.cfg_img_w = self.create_cfg_entry(body, "Maks Lebar (W)", "240", row=1, col=0)
+        self.cfg_img_h = self.create_cfg_entry(body, "Maks Tinggi (H)", "310", row=1, col=2)
 
         # 2. QR Code
-        self.config_group_label(self.scrollable_frame, "QR CODE").grid(row=4, column=0, columnspan=4, sticky="w", pady=(18, 5))
-        self.cfg_qr_x = self.create_cfg_entry(self.scrollable_frame, "Kedudukan X:", "735", row=5, col=0)
-        self.cfg_qr_y = self.create_cfg_entry(self.scrollable_frame, "Kedudukan Y:", "255", row=5, col=2)
-        self.cfg_qr_size = self.create_cfg_entry(self.scrollable_frame, "Saiz QR:", "230", row=6, col=0)
+        body = grid_body(self.section_card(pad, "2", "Kod QR", "Kedudukan & saiz kod QR", icon="qr-code"))
+        self.cfg_qr_x = self.create_cfg_entry(body, "Kedudukan X", "735", row=0, col=0)
+        self.cfg_qr_y = self.create_cfg_entry(body, "Kedudukan Y", "255", row=0, col=2)
+        self.cfg_qr_size = self.create_cfg_entry(body, "Saiz QR", "230", row=1, col=0)
 
-        # 3. Batch
-        self.config_group_label(self.scrollable_frame, "BATCH").grid(row=7, column=0, columnspan=4, sticky="w", pady=(18, 5))
-        self.cfg_n1_x = self.create_cfg_entry(self.scrollable_frame, "Kedudukan X:", "340", row=8, col=0)
-        self.cfg_n1_y = self.create_cfg_entry(self.scrollable_frame, "Kedudukan Y:", "410", row=8, col=2)
-        self.cfg_n1_font = self.create_cfg_entry(self.scrollable_frame, "Saiz Font:", "45", row=9, col=0)
+        # 3-5. Medan teks (Batch, Nama Penuh, Email MOE) — struktur sama, nama atribut cfg_n1/n2/n3
+        text_groups = [
+            ("n1", "3", "Batch", (340, 410, 45), True, False),
+            ("n2", "4", "Nama Penuh", (320, 480, 30), False, False),
+            ("n3", "5", "Email MOE", (320, 550, 25), False, True),
+        ]
+        for key, num, title, (dx, dy, dfont), dbold, ditalic in text_groups:
+            body = grid_body(self.section_card(pad, num, title, "Kedudukan, saiz & gaya fon", icon="type"))
+            setattr(self, f"cfg_{key}_x", self.create_cfg_entry(body, "Kedudukan X", str(dx), row=0, col=0))
+            setattr(self, f"cfg_{key}_y", self.create_cfg_entry(body, "Kedudukan Y", str(dy), row=0, col=2))
+            setattr(self, f"cfg_{key}_font", self.create_cfg_entry(body, "Saiz Font", str(dfont), row=1, col=0))
 
-        self.field_label(self.scrollable_frame, "Jenis Font:").grid(row=9, column=2, sticky="w", padx=5)
-        self.cfg_n1_font_file = ctk.CTkComboBox(self.scrollable_frame, values=FONT_OPTIONS, width=130, button_color=COLOR_ACCENT, border_color=COLOR_BORDER,
-                                                  command=self.auto_save_layout_config)
-        self.cfg_n1_font_file.set("arial.ttf")
-        self.cfg_n1_font_file.grid(row=9, column=3, sticky="w", padx=5)
+            self.field_label(body, "Jenis Font").grid(row=1, column=2, sticky="w", padx=(12, 10), pady=6)
+            font_cbo = self.combo_box(body, FONT_OPTIONS, width=150, command=self.auto_save_layout_config)
+            font_cbo.set("arial.ttf")
+            font_cbo.grid(row=1, column=3, sticky="w", pady=6)
+            setattr(self, f"cfg_{key}_font_file", font_cbo)
 
-        self.cfg_n1_bold = tk.BooleanVar(value=True)
-        self.cfg_n1_italic = tk.BooleanVar(value=False)
-        self.cfg_n1_bold.trace_add("write", self.auto_save_layout_config)
-        self.cfg_n1_italic.trace_add("write", self.auto_save_layout_config)
-        ctk.CTkCheckBox(self.scrollable_frame, text="Bold", variable=self.cfg_n1_bold, fg_color=COLOR_ACCENT, hover_color=COLOR_ACCENT_HOVER).grid(row=10, column=0, sticky="w", padx=5, pady=5)
-        ctk.CTkCheckBox(self.scrollable_frame, text="Italic", variable=self.cfg_n1_italic, fg_color=COLOR_ACCENT, hover_color=COLOR_ACCENT_HOVER).grid(row=10, column=1, sticky="w", padx=5, pady=5)
+            bold_var = tk.BooleanVar(value=dbold)
+            italic_var = tk.BooleanVar(value=ditalic)
+            bold_var.trace_add("write", self.auto_save_layout_config)
+            italic_var.trace_add("write", self.auto_save_layout_config)
+            setattr(self, f"cfg_{key}_bold", bold_var)
+            setattr(self, f"cfg_{key}_italic", italic_var)
 
-        self.field_label(self.scrollable_frame, "Justifikasi:").grid(row=10, column=2, sticky="w", padx=5, pady=5)
-        self.cfg_n1_justify = ctk.StringVar(value="Left")
-        self.cfg_n1_justify.trace_add("write", self.auto_save_layout_config)
-        self.cfg_n1_just_menu = ctk.CTkSegmentedButton(self.scrollable_frame, values=["Left", "Center", "Right"], variable=self.cfg_n1_justify, width=130, selected_color=COLOR_ACCENT, selected_hover_color=COLOR_ACCENT_HOVER)
-        self.cfg_n1_just_menu.grid(row=10, column=3, sticky="w", padx=5, pady=5)
+            self.field_label(body, "Gaya").grid(row=2, column=0, sticky="w", padx=(0, 10), pady=6)
+            style_box = ctk.CTkFrame(body, fg_color="transparent")
+            style_box.grid(row=2, column=1, sticky="w", pady=6)
+            for text, var in (("Bold", bold_var), ("Italic", italic_var)):
+                ctk.CTkCheckBox(style_box, text=text, variable=var, fg_color=COLOR_ACCENT, hover_color=COLOR_ACCENT_HOVER,
+                                border_color=COLOR_BORDER_STRONG, border_width=2, corner_radius=5, checkbox_width=20, checkbox_height=20,
+                                text_color=COLOR_TEXT, font=ctk.CTkFont(family=FONT_FAMILY, size=12)).pack(side="left", padx=(0, 14))
 
-        # 4. Nama Penuh
-        self.config_group_label(self.scrollable_frame, "NAMA PENUH").grid(row=11, column=0, columnspan=4, sticky="w", pady=(18, 5))
-        self.cfg_n2_x = self.create_cfg_entry(self.scrollable_frame, "Kedudukan X:", "320", row=12, col=0)
-        self.cfg_n2_y = self.create_cfg_entry(self.scrollable_frame, "Kedudukan Y:", "480", row=12, col=2)
-        self.cfg_n2_font = self.create_cfg_entry(self.scrollable_frame, "Saiz Font:", "30", row=13, col=0)
+            self.field_label(body, "Justifikasi").grid(row=2, column=2, sticky="w", padx=(12, 10), pady=6)
+            just_var = ctk.StringVar(value="Left")
+            just_var.trace_add("write", self.auto_save_layout_config)
+            setattr(self, f"cfg_{key}_justify", just_var)
+            just_menu = ctk.CTkSegmentedButton(body, values=["Left", "Center", "Right"], variable=just_var, width=150, height=32,
+                                               fg_color=COLOR_SEG_TRACK, unselected_color=COLOR_SEG_TRACK,
+                                               unselected_hover_color=COLOR_SEG_HOVER, selected_color=COLOR_SURFACE,
+                                               selected_hover_color=COLOR_SURFACE, text_color=COLOR_PRIMARY,
+                                               font=ctk.CTkFont(family=FONT_FAMILY_SEMIBOLD, size=11), corner_radius=8)
+            just_menu.grid(row=2, column=3, sticky="w", pady=6)
+            setattr(self, f"cfg_{key}_just_menu", just_menu)
 
-        self.field_label(self.scrollable_frame, "Jenis Font:").grid(row=13, column=2, sticky="w", padx=5)
-        self.cfg_n2_font_file = ctk.CTkComboBox(self.scrollable_frame, values=FONT_OPTIONS, width=130, button_color=COLOR_ACCENT, border_color=COLOR_BORDER,
-                                                  command=self.auto_save_layout_config)
-        self.cfg_n2_font_file.set("arial.ttf")
-        self.cfg_n2_font_file.grid(row=13, column=3, sticky="w", padx=5)
+        frame_buttons = ctk.CTkFrame(pad, fg_color="transparent")
+        frame_buttons.pack(fill="x", padx=2, pady=(2, 10))
+        frame_buttons.grid_columnconfigure((0, 1), weight=1, uniform="cfgbtn")
+        self.btn_success(frame_buttons, "Simpan Layout", self.save_layout_config, icon="save").grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        self.btn_secondary(frame_buttons, "Muat Tetapan", self.load_layout_config, icon="folder-input", height=40).grid(row=0, column=1, sticky="ew", padx=(6, 0))
 
-        self.cfg_n2_bold = tk.BooleanVar(value=False)
-        self.cfg_n2_italic = tk.BooleanVar(value=False)
-        self.cfg_n2_bold.trace_add("write", self.auto_save_layout_config)
-        self.cfg_n2_italic.trace_add("write", self.auto_save_layout_config)
-        ctk.CTkCheckBox(self.scrollable_frame, text="Bold", variable=self.cfg_n2_bold, fg_color=COLOR_ACCENT, hover_color=COLOR_ACCENT_HOVER).grid(row=14, column=0, sticky="w", padx=5, pady=5)
-        ctk.CTkCheckBox(self.scrollable_frame, text="Italic", variable=self.cfg_n2_italic, fg_color=COLOR_ACCENT, hover_color=COLOR_ACCENT_HOVER).grid(row=14, column=1, sticky="w", padx=5, pady=5)
-
-        self.field_label(self.scrollable_frame, "Justifikasi:").grid(row=14, column=2, sticky="w", padx=5, pady=5)
-        self.cfg_n2_justify = ctk.StringVar(value="Left")
-        self.cfg_n2_justify.trace_add("write", self.auto_save_layout_config)
-        self.cfg_n2_just_menu = ctk.CTkSegmentedButton(self.scrollable_frame, values=["Left", "Center", "Right"], variable=self.cfg_n2_justify, width=130, selected_color=COLOR_ACCENT, selected_hover_color=COLOR_ACCENT_HOVER)
-        self.cfg_n2_just_menu.grid(row=14, column=3, sticky="w", padx=5, pady=5)
-
-        # 5. Email MOE
-        self.config_group_label(self.scrollable_frame, "EMAIL MOE").grid(row=15, column=0, columnspan=4, sticky="w", pady=(18, 5))
-        self.cfg_n3_x = self.create_cfg_entry(self.scrollable_frame, "Kedudukan X:", "320", row=16, col=0)
-        self.cfg_n3_y = self.create_cfg_entry(self.scrollable_frame, "Kedudukan Y:", "550", row=16, col=2)
-        self.cfg_n3_font = self.create_cfg_entry(self.scrollable_frame, "Saiz Font:", "25", row=17, col=0)
-
-        self.field_label(self.scrollable_frame, "Jenis Font:").grid(row=17, column=2, sticky="w", padx=5)
-        self.cfg_n3_font_file = ctk.CTkComboBox(self.scrollable_frame, values=FONT_OPTIONS, width=130, button_color=COLOR_ACCENT, border_color=COLOR_BORDER,
-                                                  command=self.auto_save_layout_config)
-        self.cfg_n3_font_file.set("arial.ttf")
-        self.cfg_n3_font_file.grid(row=17, column=3, sticky="w", padx=5)
-
-        self.cfg_n3_bold = tk.BooleanVar(value=False)
-        self.cfg_n3_italic = tk.BooleanVar(value=True)
-        self.cfg_n3_bold.trace_add("write", self.auto_save_layout_config)
-        self.cfg_n3_italic.trace_add("write", self.auto_save_layout_config)
-        ctk.CTkCheckBox(self.scrollable_frame, text="Bold", variable=self.cfg_n3_bold, fg_color=COLOR_ACCENT, hover_color=COLOR_ACCENT_HOVER).grid(row=18, column=0, sticky="w", padx=5, pady=5)
-        ctk.CTkCheckBox(self.scrollable_frame, text="Italic", variable=self.cfg_n3_italic, fg_color=COLOR_ACCENT, hover_color=COLOR_ACCENT_HOVER).grid(row=18, column=1, sticky="w", padx=5, pady=5)
-
-        self.field_label(self.scrollable_frame, "Justifikasi:").grid(row=18, column=2, sticky="w", padx=5, pady=5)
-        self.cfg_n3_justify = ctk.StringVar(value="Left")
-        self.cfg_n3_justify.trace_add("write", self.auto_save_layout_config)
-        self.cfg_n3_just_menu = ctk.CTkSegmentedButton(self.scrollable_frame, values=["Left", "Center", "Right"], variable=self.cfg_n3_justify, width=130, selected_color=COLOR_ACCENT, selected_hover_color=COLOR_ACCENT_HOVER)
-        self.cfg_n3_just_menu.grid(row=18, column=3, sticky="w", padx=5, pady=5)
-
-        frame_buttons = ctk.CTkFrame(self.scrollable_frame, fg_color="transparent")
-        frame_buttons.grid(row=19, column=0, columnspan=4, sticky="w", pady=18)
-        self.btn_success(frame_buttons, "💾  Simpan Layout", self.save_layout_config, width=160).pack(side="left", padx=(0, 8))
-        self.btn_secondary(frame_buttons, "📂  Muat Tetapan", self.load_layout_config, width=160, height=38).pack(side="left")
-
-        self.btn_primary(self.scrollable_frame, "🔄  KEMAS KINI & JANA PREVIEW", self.trigger_refresh_preview, height=42).grid(row=20, column=0, columnspan=4, pady=(0, 15), sticky="ew")
+        self.btn_primary(pad, "Kemas Kini & Jana Pratonton", self.trigger_refresh_preview, icon="refresh-cw", height=46).pack(fill="x", padx=2, pady=(0, 16))
 
     def config_group_label(self, parent, text):
-        return ctk.CTkLabel(parent, text=text, font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"), text_color=COLOR_ACCENT)
+        return ctk.CTkLabel(parent, text=text, font=ctk.CTkFont(family=FONT_FAMILY_SEMIBOLD, size=12), text_color=COLOR_PRIMARY)
 
     # ============================================================
     # PANEL KANAN: PREVIEW & KAWALAN OUTPUT
     # ============================================================
+    PREVIEW_W, PREVIEW_H = 520, 328   # nisbah kad 1013 × 638
+
     def build_preview_panel(self):
-        ctk.CTkLabel(self.right_frame, text="PRATONTON KAD", font=ctk.CTkFont(family=FONT_FAMILY, size=15, weight="bold"), text_color=COLOR_TEXT).pack(pady=(20, 4))
-        ctk.CTkLabel(self.right_frame, text="Semakan visual sebelum cetak", font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color=COLOR_TEXT_MUTED).pack(pady=(0, 12))
+        head = ctk.CTkFrame(self.right_frame, fg_color="transparent")
+        head.pack(fill="x", padx=28, pady=(22, 0))
+        title_box = ctk.CTkFrame(head, fg_color="transparent")
+        title_box.pack(side="left")
+        ctk.CTkLabel(title_box, text="Pratonton Kad", font=ctk.CTkFont(family=FONT_FAMILY_SEMIBOLD, size=18),
+                     text_color=COLOR_TEXT, height=24).pack(anchor="w")
+        ctk.CTkLabel(title_box, text="Semakan visual sebelum dicetak", font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                     text_color=COLOR_TEXT_MUTED, height=18).pack(anchor="w")
+        ctk.CTkLabel(head, text="  CR-80  ·  86 × 54 mm  ", image=make_icon("id-card", COLOR_PRIMARY, 14), compound="left",
+                     font=ctk.CTkFont(family=FONT_FAMILY_SEMIBOLD, size=11), text_color=COLOR_PRIMARY,
+                     fg_color=COLOR_SURFACE_ALT, corner_radius=8, height=28).pack(side="right")
 
-        preview_frame = ctk.CTkFrame(self.right_frame, corner_radius=14, fg_color=COLOR_SURFACE_ALT, border_width=1, border_color=COLOR_BORDER)
-        preview_frame.pack(pady=5, padx=30)
-
-        self.preview_container = ctk.CTkFrame(preview_frame, width=450, height=283, corner_radius=10, fg_color="#ffffff")
-        self.preview_container.pack(padx=14, pady=14)
+        # Pentas pratonton: latar kelabu lembut dengan kad "terapung" (bingkai bayang)
+        stage = ctk.CTkFrame(self.right_frame, corner_radius=14, fg_color=COLOR_SURFACE_ALT, border_width=1, border_color=COLOR_BORDER)
+        stage.pack(fill="x", padx=28, pady=(16, 0))
+        shadow = ctk.CTkFrame(stage, corner_radius=16, fg_color="#DDE4EC")
+        shadow.pack(padx=28, pady=(30, 30))
+        self.preview_container = ctk.CTkFrame(shadow, width=self.PREVIEW_W, height=self.PREVIEW_H, corner_radius=14,
+                                              fg_color=COLOR_SURFACE, border_width=1, border_color=COLOR_BORDER_STRONG)
+        self.preview_container.pack(padx=(0, 3), pady=(0, 4))
         self.preview_container.pack_propagate(False)
 
-        self.lbl_preview = ctk.CTkLabel(self.preview_container, text="Sila jana preview atau pilih murid", text_color=COLOR_TEXT_MUTED, font=ctk.CTkFont(family=FONT_FAMILY, size=12))
-        self.lbl_preview.pack(fill="both", expand=True)
+        self.lbl_preview = ctk.CTkLabel(self.preview_container, text="Belum ada pratonton\n\nPilih murid dalam senarai atau tekan 'Jana Pratonton Kad'",
+                                        image=None, text_color=COLOR_TEXT_SUBTLE, font=ctk.CTkFont(family=FONT_FAMILY, size=13),
+                                        justify="center")
+        self.lbl_preview.pack(fill="both", expand=True, padx=3, pady=3)
 
-        divider = ctk.CTkFrame(self.right_frame, height=1, fg_color=COLOR_BORDER)
-        divider.pack(fill="x", padx=30, pady=(20, 15))
+        out = ctk.CTkFrame(self.right_frame, fg_color="transparent")
+        out.pack(fill="x", padx=28, pady=(22, 0))
+        out.grid_columnconfigure(0, weight=1)
 
-        self.field_label(self.right_frame, "Pilih Pencetak Kad (Printer)").pack(anchor="w", padx=50, pady=(0, 6))
-        self.cbo_printer = ctk.CTkComboBox(self.right_frame, width=350, button_color=COLOR_ACCENT, border_color=COLOR_BORDER)
-        self.cbo_printer.pack(pady=5)
+        label_row = ctk.CTkFrame(out, fg_color="transparent")
+        label_row.grid(row=0, column=0, sticky="w", pady=(0, 6))
+        ctk.CTkLabel(label_row, text="", image=make_icon("printer", COLOR_TEXT_MUTED, 15), width=18).pack(side="left", padx=(0, 6))
+        self.field_label(label_row, "Pencetak Kad").pack(side="left")
+
+        self.cbo_printer = self.combo_box(out, [], width=420, command=lambda _v: self.update_status_bar())
+        self.cbo_printer.grid(row=1, column=0, sticky="ew")
         self.populate_printers()
 
-        self.btn_global_print = self.btn_primary(self.right_frame, "🖨  CETAK KAD INI SEKARANG", self.print_single_card, width=350, height=46, state="disabled")
-        self.btn_global_print.pack(pady=(18, 8))
+        self.btn_global_print = self.btn_cta(out, "Cetak Kad Ini Sekarang", self.print_single_card, icon="printer", height=50, state="disabled")
+        self.btn_global_print.grid(row=2, column=0, sticky="ew", pady=(16, 10))
 
-        self.btn_global_download = self.btn_secondary(self.right_frame, "💾  MUAT TURUN GAMBAR KAD (PNG)", self.download_card_image, width=350, height=38)
-        self.btn_global_download.pack(pady=5)
+        self.btn_global_download = self.btn_secondary(out, "Muat Turun Gambar Kad (PNG)", self.download_card_image, icon="download", height=42)
+        self.btn_global_download.grid(row=3, column=0, sticky="ew")
+
+    def build_status_bar(self):
+        bar = ctk.CTkFrame(self, height=30, corner_radius=0, fg_color=COLOR_SURFACE, border_width=0)
+        bar.grid(row=2, column=0, columnspan=2, sticky="ew")
+        bar.pack_propagate(False)
+        ctk.CTkFrame(bar, height=1, fg_color=COLOR_BORDER).pack(side="top", fill="x")
+        ctk.CTkLabel(bar, text="●", font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color="#22A55A", width=10).pack(side="left", padx=(18, 6))
+        self.lbl_status_left = ctk.CTkLabel(bar, text="", font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color=COLOR_TEXT_MUTED)
+        self.lbl_status_left.pack(side="left")
+        ctk.CTkLabel(bar, text=f"MyKUSESS Studio Card Print {APP_VERSION}", font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                     text_color=COLOR_TEXT_SUBTLE).pack(side="right", padx=18)
+        self.update_status_bar()
+
+    def update_status_bar(self):
+        if not hasattr(self, "lbl_status_left"):
+            return
+        printer = self.cbo_printer.get() if hasattr(self, "cbo_printer") else "-"
+        total = len(self.csv_data)
+        marked = sum(1 for r in self.csv_data if r.get("pilih"))
+        self.lbl_status_left.configure(text=f"Sedia     |     Pencetak: {printer or '-'}     |     Rekod: {total}  ·  Ditanda: {marked}")
 
     # ============================================================
     #  LOGIK APLIKASI (tidak berubah — hanya paparan diubah suai)
@@ -663,21 +862,20 @@ class CardPrinterApp(ctk.CTk):
         self.ent_qr_code.insert(0, random_code)
 
     def create_cfg_entry(self, parent, label_text, default_val, row, col, step=1):
-        self.field_label(parent, label_text).grid(row=row, column=col, sticky="w", padx=5, pady=5)
-        container = ctk.CTkFrame(parent, fg_color="transparent")
-        container.grid(row=row, column=col + 1, sticky="w", padx=5, pady=5)
-        entry = ctk.CTkEntry(container, width=64, border_color=COLOR_BORDER)
+        self.field_label(parent, label_text).grid(row=row, column=col, sticky="w", padx=(0 if col == 0 else 12, 10), pady=6)
+        container = ctk.CTkFrame(parent, fg_color=COLOR_SURFACE_ALT, corner_radius=9, border_width=1, border_color=COLOR_BORDER)
+        container.grid(row=row, column=col + 1, sticky="w", pady=6)
+        entry = ctk.CTkEntry(container, width=70, height=32, border_width=0, fg_color=COLOR_SURFACE_ALT, text_color=COLOR_TEXT,
+                             justify="center", font=ctk.CTkFont(family=FONT_FAMILY, size=13))
         entry.insert(0, default_val)
-        entry.pack(side="left")
+        entry.pack(side="left", padx=(4, 0), pady=2)
         entry.bind("<FocusOut>", self.auto_save_layout_config)
         spin_frame = ctk.CTkFrame(container, fg_color="transparent")
-        spin_frame.pack(side="left", padx=(2, 0))
-        ctk.CTkButton(spin_frame, text="▲", width=18, height=13, corner_radius=3, fg_color=COLOR_SURFACE_ALT,
-                      hover_color=COLOR_BORDER, text_color=COLOR_TEXT, font=ctk.CTkFont(family=FONT_FAMILY, size=8),
-                      command=lambda: self.step_cfg_entry(entry, step)).pack()
-        ctk.CTkButton(spin_frame, text="▼", width=18, height=13, corner_radius=3, fg_color=COLOR_SURFACE_ALT,
-                      hover_color=COLOR_BORDER, text_color=COLOR_TEXT, font=ctk.CTkFont(family=FONT_FAMILY, size=8),
-                      command=lambda: self.step_cfg_entry(entry, -step)).pack(pady=(1, 0))
+        spin_frame.pack(side="left", padx=(0, 4), pady=3)
+        for symbol, delta in (("▲", step), ("▼", -step)):
+            ctk.CTkButton(spin_frame, text=symbol, width=22, height=15, corner_radius=4, fg_color=COLOR_SURFACE,
+                          hover_color=COLOR_BORDER, text_color=COLOR_TEXT_MUTED, font=ctk.CTkFont(family=FONT_FAMILY, size=8),
+                          command=lambda d=delta: self.step_cfg_entry(entry, d)).pack(pady=(0, 1))
         return entry
 
     def step_cfg_entry(self, entry, delta):
@@ -880,11 +1078,11 @@ class CardPrinterApp(ctk.CTk):
         if self._update_check_running:
             return
         self._update_check_running = True
-        self.btn_check_update.configure(state="disabled", text="⟳  Menyemak...")
+        self.btn_check_update.configure(state="disabled", text="Menyemak...")
 
         def on_done(info, error):
             self._update_check_running = False
-            self.btn_check_update.configure(state="normal", text="⟳  Semak Kemas Kini")
+            self.btn_check_update.configure(state="normal", text="Semak Kemas Kini")
             if error is not None:
                 # Semakan automatik gagal (cth. tiada internet) -> senyap sahaja
                 if manual:
@@ -1224,6 +1422,19 @@ class CardPrinterApp(ctk.CTk):
             email_display = row['email_moe'] if row['email_moe'] else "(Tiada Email)"
             self.tree.insert("", tk.END, values=(pilih_symbol, row['kod_qr'], row['batch'], row['nama_penuh'], email_display), tags=(row_tag,))
 
+        if hasattr(self, "lbl_tree_count"):
+            total = len(self.csv_data)
+            marked = sum(1 for r in self.csv_data if r.get("pilih"))
+            shown = len(self.tree.get_children())
+            if total:
+                text = f"{total} rekod  ·  {marked} ditanda untuk dicetak"
+                if shown != total:
+                    text += f"  ·  {shown} dipaparkan (carian)"
+            else:
+                text = "Tiada rekod dimuat"
+            self.lbl_tree_count.configure(text=text)
+        self.update_status_bar()
+
     def filter_search(self, event):
         query = self.ent_search.get()
         self.refresh_treeview(query)
@@ -1394,8 +1605,9 @@ class CardPrinterApp(ctk.CTk):
 
     def update_preview_ui(self, card_image):
         self.generated_card = card_image
-        preview_img = card_image.copy().resize((450, 283), resample=Image.Resampling.LANCZOS)
-        self.photo_preview = ImageTk.PhotoImage(preview_img)
+        w, h = self.PREVIEW_W - 6, self.PREVIEW_H - 6
+        preview_img = card_image.copy().convert("RGB").resize((w * 2, h * 2), resample=Image.Resampling.LANCZOS)
+        self.photo_preview = ctk.CTkImage(light_image=preview_img, dark_image=preview_img, size=(w, h))
         self.lbl_preview.configure(image=self.photo_preview, text="")
         self.btn_global_print.configure(state="normal")
 
