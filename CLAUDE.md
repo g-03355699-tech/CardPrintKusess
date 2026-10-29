@@ -21,6 +21,12 @@ There are no tests, no linter, and no `requirements.txt` in this repo.
 
 `dist/MyKusessCetak.exe` and `build/` **are committed to git** (not gitignored) — this repo ships the built binary alongside source. After a behavior change intended for release, bump `APP_VERSION` in `MyKusessCetak.py`, rebuild with `pyinstaller MyKusessCetak.spec`, and commit source + rebuilt `dist/`/`build/` together. Match the existing commit message style, e.g. `Release v1.04: fix stretched/cropped card printing, rebuild exe` or `v1.03: editable Nama Penuh in batch list, rebuild exe`.
 
+### Auto-update
+
+On startup (2.5s after the UI is up) and via the header's "Semak Kemas Kini" button, the app queries `releases/latest` on the GitHub REST API (`UPDATE_REPO`), compares `tag_name` to `APP_VERSION` with `parse_version` (numeric tuple, so `v1.10 > v1.09`), and offers the update in `show_update_dialog`. The download prefers a `.exe` release asset (verified against its size and `sha256:` digest when the API provides them) and falls back to `dist/MyKusessCetak.exe` at that tag. Network calls run in a daemon thread via `_run_in_background`, which polls with `after()` so Tk is only touched from the main thread. `install_update_and_restart` renames the running exe to `.old` (Windows allows renaming, not overwriting, a running exe), moves `.new` into place, relaunches with `PYINSTALLER_RESET_ENVIRONMENT=1` so the onefile child doesn't reuse the dying parent's `_MEI` dir, and `cleanup_old_exe` deletes `.old` on the next start. Only active when frozen (`is_frozen_exe`); from source it just opens the release page. "Langkau versi ini" is stored in `update_settings.json` (gitignored), separate from `app_settings.json` because `save_app_settings` rewrites that file wholesale.
+
+`.github/workflows/build-release.yml` builds the exe on `windows-latest` whenever a Release is published and attaches it as an asset; it **fails if `APP_VERSION` ≠ the release tag**, because a mismatched release would make every client re-download it forever (installed exe would still report an older version). So the release tag must always equal `APP_VERSION`.
+
 ## Architecture
 
 This is a single-window CustomTkinter desktop app (`MyKusessCetak.py`, one `ctk.CTk` subclass named `CardPrinterApp`, Windows-only, uses `pywin32` for GDI printing) that composites a background template + student/teacher photo + QR code + text fields into a 1013×638 PNG "card" image, then either previews it, saves it, or sends it straight to a Windows printer via `win32ui`/`ImageWin`.

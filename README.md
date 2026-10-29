@@ -1,8 +1,21 @@
-# MyKUSESS Studio Card Print v1.06
+# MyKUSESS Studio Card Print v1.07
 
 Aplikasi desktop (Windows, Python + CustomTkinter) untuk menjana dan mencetak kad pengenalan (ID card) guru/murid MyKUSESS, lengkap dengan gambar, kod QR unik, dan maklumat individu. Menyokong cetakan satu-satu atau pukal (batch) daripada fail CSV.
 
 ![Pratonton MyKUSESS Studio Card Print](screenshots/mykusess-studio-preview.png)
+
+## v1.07 — Nota Keluaran
+
+- **Kemas kini automatik (auto-update)** — aplikasi kini menyemak release terkini di GitHub secara senyap setiap kali dibuka. Jika ada versi baharu, dialog dipaparkan dengan nota keluaran dan pilihan **Kemas Kini Sekarang**, **Nanti**, atau **Langkau versi ini**. "Kemas Kini Sekarang" memuat turun exe baharu (dengan bar kemajuan), mengesahkan fail, menggantikan exe semasa, dan memulakan semula aplikasi secara automatik — tetapan, layout dan templat dikekalkan.
+- **Butang "Semak Kemas Kini"** pada bar header untuk semakan manual pada bila-bila masa.
+- **Binaan exe automatik (GitHub Actions)** — setiap kali Release diterbitkan, `MyKusessCetak.exe` dibina di Windows dan dilampirkan pada release tersebut. Jika release tiada aset exe, aplikasi menggunakan `dist/MyKusessCetak.exe` pada tag release itu.
+- Nota: pengguna v1.06 dan ke bawah perlu memasang v1.07 secara manual sekali sahaja; selepas itu kemas kini berlaku secara automatik.
+
+### Cara menerbitkan versi baharu (supaya semua komputer dikemas kini)
+
+1. Kemas kini `APP_VERSION` dalam `MyKusessCetak.py` (cth. `"v1.08"`) dan push.
+2. Di GitHub: **Releases → Draft a new release**, tag **mesti sama** dengan `APP_VERSION` (cth. `v1.08`), tulis nota keluaran, tekan **Publish**.
+3. Tunggu ~3-5 minit sehingga Actions selesai melampirkan `MyKusessCetak.exe`. Komputer pengguna akan menerima kemas kini apabila aplikasi dibuka.
 
 ## v1.06 — Nota Keluaran
 

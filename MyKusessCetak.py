@@ -6,6 +6,11 @@ import re
 import random
 import string
 import datetime
+import hashlib
+import subprocess
+import threading
+import urllib.request
+import webbrowser
 import tkinter as tk
 import customtkinter as ctk
 from tkinter import filedialog, messagebox, ttk
@@ -16,7 +21,17 @@ import win32ui
 import win32con
 from PIL import ImageWin
 
-APP_VERSION = "v1.06"
+APP_VERSION = "v1.07"
+
+# --- AUTO-UPDATE (GitHub Releases) ---
+UPDATE_REPO = "g-03355699-tech/CardPrintKusess"
+UPDATE_API_URL = f"https://api.github.com/repos/{UPDATE_REPO}/releases/latest"
+UPDATE_RELEASES_PAGE = f"https://github.com/{UPDATE_REPO}/releases/latest"
+# Jika release tiada aset .exe dilampirkan, exe diambil daripada dist/ pada tag release tersebut
+# (konvensyen repo: dist/MyKusessCetak.exe di-commit bersama setiap release).
+UPDATE_FALLBACK_EXE_URL = "https://github.com/" + UPDATE_REPO + "/raw/{tag}/dist/MyKusessCetak.exe"
+UPDATE_SETTINGS_FILENAME = "update_settings.json"
+UPDATE_USER_AGENT = f"MyKusessCetak/{APP_VERSION}"
 
 # ============================================================
 #  TEMA & GAYA — reka bentuk profesional seakan Badgy Studio
@@ -41,6 +56,132 @@ COLOR_DANGER         = "#DC2626"
 COLOR_DANGER_HOVER   = "#B91C1C"
 COLOR_NEUTRAL        = "#64748B"
 COLOR_NEUTRAL_HOVER  = "#475569"
+
+
+# ============================================================
+#  AUTO-UPDATE: fungsi bantuan (tiada UI, selamat dipanggil dari thread)
+# ============================================================
+def parse_version(tag):
+    """'v1.06' -> (1, 6); '1.10.2' -> (1, 10, 2). Tag tidak sah -> ()."""
+    nums = re.findall(r"\d+", tag or "")
+    return tuple(int(n) for n in nums)
+
+
+def is_frozen_exe():
+    return getattr(sys, "frozen", False) and sys.executable.lower().endswith(".exe")
+
+
+def _http_get(url, timeout=15):
+    req = urllib.request.Request(url, headers={
+        "User-Agent": UPDATE_USER_AGENT,
+        "Accept": "application/vnd.github+json",
+    })
+    return urllib.request.urlopen(req, timeout=timeout)
+
+
+def fetch_latest_release():
+    """Pulangkan dict {tag, name, notes, exe_url, exe_size, sha256, page} bagi release terkini."""
+    with _http_get(UPDATE_API_URL) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+
+    tag = data.get("tag_name", "")
+    exe_url, exe_size, sha256 = None, None, None
+    for asset in data.get("assets", []):
+        if asset.get("name", "").lower().endswith(".exe"):
+            exe_url = asset.get("browser_download_url")
+            exe_size = asset.get("size")
+            digest = asset.get("digest") or ""
+            if digest.startswith("sha256:"):
+                sha256 = digest.split(":", 1)[1].lower()
+            break
+    if not exe_url:
+        exe_url = UPDATE_FALLBACK_EXE_URL.format(tag=tag)
+
+    return {
+        "tag": tag,
+        "name": data.get("name") or tag,
+        "notes": (data.get("body") or "").strip(),
+        "exe_url": exe_url,
+        "exe_size": exe_size,
+        "sha256": sha256,
+        "page": data.get("html_url") or UPDATE_RELEASES_PAGE,
+    }
+
+
+def download_update(info, dest_path, progress_cb=None):
+    """Muat turun exe baharu ke dest_path & sahkan. Bangkitkan RuntimeError jika rosak."""
+    hasher = hashlib.sha256()
+    done = 0
+    with _http_get(info["exe_url"], timeout=60) as resp, open(dest_path, "wb") as out:
+        total = int(resp.headers.get("Content-Length") or 0) or (info.get("exe_size") or 0)
+        while True:
+            chunk = resp.read(256 * 1024)
+            if not chunk:
+                break
+            out.write(chunk)
+            hasher.update(chunk)
+            done += len(chunk)
+            if progress_cb:
+                progress_cb(done, total)
+
+    with open(dest_path, "rb") as f:
+        if f.read(2) != b"MZ":
+            raise RuntimeError("Fail dimuat turun bukan fail .exe yang sah.")
+    if done < 1_000_000:
+        raise RuntimeError("Fail dimuat turun terlalu kecil — kemungkinan muat turun tidak lengkap.")
+    if info.get("exe_size") and done != info["exe_size"]:
+        raise RuntimeError("Saiz fail tidak sepadan — muat turun tidak lengkap.")
+    if info.get("sha256") and hasher.hexdigest().lower() != info["sha256"]:
+        raise RuntimeError("Semakan SHA-256 gagal — fail mungkin rosak.")
+
+
+def install_update_and_restart(new_exe_path):
+    """Ganti exe yang sedang berjalan dengan versi baharu, kemudian lancar semula.
+
+    Windows tidak benarkan fail exe yang sedang berjalan ditulis ganti, tetapi ia
+    BOLEH dinamakan semula. Jadi: exe semasa -> .old, exe baharu -> nama asal,
+    lancar exe baharu, dan fail .old dibuang pada permulaan seterusnya.
+    """
+    current = sys.executable
+    old_path = current + ".old"
+    if os.path.exists(old_path):
+        try:
+            os.remove(old_path)
+        except OSError:
+            old_path = current + f".{datetime.datetime.now():%Y%m%d%H%M%S}.old"
+
+    os.replace(current, old_path)
+    try:
+        os.replace(new_exe_path, current)
+    except Exception:
+        os.replace(old_path, current)  # pulihkan versi asal jika gagal
+        raise
+
+    # Pastikan proses baharu PyInstaller (onefile) membuat salinan sementara sendiri,
+    # bukannya mewarisi folder _MEI proses lama yang akan dipadam bila aplikasi ini tutup.
+    env = dict(os.environ)
+    env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+    for key in list(env):
+        if key.startswith("_MEIPASS") or key.startswith("_PYI_"):
+            env.pop(key, None)
+    subprocess.Popen([current], cwd=os.getcwd(), env=env, close_fds=True,
+                     creationflags=getattr(subprocess, "DETACHED_PROCESS", 0))
+
+
+def cleanup_old_exe():
+    if not is_frozen_exe():
+        return
+    folder = os.path.dirname(sys.executable)
+    base = os.path.basename(sys.executable)
+    try:
+        for name in os.listdir(folder):
+            if name.startswith(base) and name.endswith(".old"):
+                try:
+                    os.remove(os.path.join(folder, name))
+                except OSError:
+                    pass
+    except OSError:
+        pass
 
 
 class CardPrinterApp(ctk.CTk):
@@ -118,6 +259,11 @@ class CardPrinterApp(ctk.CTk):
 
         self.protocol("WM_DELETE_WINDOW", self.on_app_close)
 
+        # Semak kemas kini secara senyap di latar belakang selepas UI siap dipaparkan
+        self._update_check_running = False
+        cleanup_old_exe()
+        self.after(2500, lambda: self.check_for_updates(manual=False))
+
     def on_app_close(self):
         # Jaring keselamatan terakhir - pastikan sebarang suntingan konfigurasi
         # layout yang belum dikesan (cth. medan terakhir tanpa fokus keluar)
@@ -156,6 +302,13 @@ class CardPrinterApp(ctk.CTk):
             right, text=APP_VERSION, font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
             text_color="#FFFFFF", fg_color=COLOR_ACCENT, corner_radius=10, width=52, height=24,
         ).pack(side="right")
+        self.btn_check_update = ctk.CTkButton(
+            right, text="⟳  Semak Kemas Kini", command=lambda: self.check_for_updates(manual=True),
+            fg_color="transparent", hover_color="#1E293B", text_color="#CBD5E1",
+            border_width=1, border_color="#334155", corner_radius=8, height=28, width=150,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+        )
+        self.btn_check_update.pack(side="right", padx=(0, 12))
 
     def section_header(self, parent, number, text, subtitle=None):
         row = ctk.CTkFrame(parent, fg_color="transparent")
@@ -684,6 +837,199 @@ class CardPrinterApp(ctk.CTk):
         entry.icursor(tk.END)
         dialog.wait_window()
         return result["value"]
+
+    # ============================================================
+    # AUTO-UPDATE (GitHub Releases)
+    # ============================================================
+    # Thread latar hanya membuat panggilan rangkaian & mengisi dict hasil;
+    # semua kemas kini UI dibuat dari thread utama Tk melalui pengundian after().
+    def load_update_settings(self):
+        try:
+            with open(UPDATE_SETTINGS_FILENAME, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+    def save_update_settings(self, data):
+        try:
+            with open(UPDATE_SETTINGS_FILENAME, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=4)
+        except Exception:
+            pass
+
+    def _run_in_background(self, work, on_done, poll_ms=150):
+        state = {"done": False, "result": None, "error": None}
+
+        def runner():
+            try:
+                state["result"] = work()
+            except Exception as e:
+                state["error"] = e
+            state["done"] = True
+
+        def poll():
+            if state["done"]:
+                on_done(state["result"], state["error"])
+            else:
+                self.after(poll_ms, poll)
+
+        threading.Thread(target=runner, daemon=True).start()
+        self.after(poll_ms, poll)
+
+    def check_for_updates(self, manual=False):
+        if self._update_check_running:
+            return
+        self._update_check_running = True
+        self.btn_check_update.configure(state="disabled", text="⟳  Menyemak...")
+
+        def on_done(info, error):
+            self._update_check_running = False
+            self.btn_check_update.configure(state="normal", text="⟳  Semak Kemas Kini")
+            if error is not None:
+                # Semakan automatik gagal (cth. tiada internet) -> senyap sahaja
+                if manual:
+                    messagebox.showwarning(
+                        "Semak Kemas Kini",
+                        f"Tidak dapat menyemak kemas kini.\nPastikan komputer disambung ke internet.\n\n({error})")
+                return
+
+            latest = parse_version(info["tag"])
+            if not latest or latest <= parse_version(APP_VERSION):
+                if manual:
+                    messagebox.showinfo("Semak Kemas Kini", f"Anda sudah menggunakan versi terkini ({APP_VERSION}).")
+                return
+
+            if not manual and self.load_update_settings().get("skipped_version") == info["tag"]:
+                return
+            self.show_update_dialog(info)
+
+        self._run_in_background(fetch_latest_release, on_done)
+
+    def show_update_dialog(self, info):
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Kemas Kini Tersedia")
+        dialog.geometry("560x470")
+        dialog.resizable(False, False)
+        dialog.configure(fg_color=COLOR_SURFACE)
+        dialog.transient(self)
+
+        ctk.CTkLabel(dialog, text="Versi baharu tersedia!", font=ctk.CTkFont(family=FONT_FAMILY, size=18, weight="bold"),
+                     text_color=COLOR_TEXT).pack(anchor="w", padx=22, pady=(20, 2))
+        ctk.CTkLabel(dialog, text=f"Versi semasa: {APP_VERSION}    →    Versi baharu: {info['tag']}",
+                     font=ctk.CTkFont(family=FONT_FAMILY, size=13), text_color=COLOR_TEXT_MUTED).pack(anchor="w", padx=22)
+
+        self.field_label(dialog, "Nota keluaran:").pack(anchor="w", padx=22, pady=(14, 4))
+        notes = ctk.CTkTextbox(dialog, width=516, height=220, border_width=1, border_color=COLOR_BORDER,
+                               fg_color=COLOR_SURFACE_ALT, text_color=COLOR_TEXT, wrap="word",
+                               font=ctk.CTkFont(family=FONT_FAMILY, size=12))
+        notes.insert("1.0", info["notes"] or info["name"] or "(Tiada nota keluaran)")
+        notes.configure(state="disabled")
+        notes.pack(padx=22)
+
+        progress = ctk.CTkProgressBar(dialog, width=516, progress_color=COLOR_ACCENT)
+        progress.set(0)
+        lbl_status = ctk.CTkLabel(dialog, text="", font=ctk.CTkFont(family=FONT_FAMILY, size=11), text_color=COLOR_TEXT_MUTED)
+
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_frame.pack(side="bottom", fill="x", padx=22, pady=(10, 18))
+
+        def on_skip():
+            data = self.load_update_settings()
+            data["skipped_version"] = info["tag"]
+            self.save_update_settings(data)
+            dialog.destroy()
+
+        def on_later():
+            dialog.destroy()
+
+        def on_update():
+            if not is_frozen_exe():
+                # Berjalan dari kod sumber (python MyKusessCetak.py) - tiada exe untuk diganti
+                webbrowser.open(info["page"])
+                dialog.destroy()
+                return
+            for b in (btn_skip, btn_later, btn_update):
+                b.configure(state="disabled")
+            dialog.protocol("WM_DELETE_WINDOW", lambda: None)  # jangan tutup semasa muat turun
+            progress.pack(padx=22, pady=(12, 0))
+            lbl_status.pack(anchor="w", padx=22)
+            self.start_update_download(info, dialog, progress, lbl_status, on_fail=on_download_failed)
+
+        def on_download_failed():
+            for b in (btn_skip, btn_later, btn_update):
+                b.configure(state="normal")
+            dialog.protocol("WM_DELETE_WINDOW", on_later)
+
+        btn_skip = ctk.CTkButton(btn_frame, text="Langkau versi ini", command=on_skip, fg_color="transparent",
+                                 hover_color=COLOR_SURFACE_ALT, text_color=COLOR_TEXT_MUTED, width=130, height=36,
+                                 font=ctk.CTkFont(family=FONT_FAMILY, size=12))
+        btn_skip.pack(side="left")
+        btn_update = self.btn_primary(btn_frame, "Kemas Kini Sekarang", on_update, width=170)
+        btn_update.pack(side="right")
+        btn_later = self.btn_secondary(btn_frame, "Nanti", on_later, width=90)
+        btn_later.pack(side="right", padx=(0, 8))
+
+        dialog.bind("<Escape>", lambda _e: on_later())
+        dialog.protocol("WM_DELETE_WINDOW", on_later)
+
+        dialog.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width() // 2) - (dialog.winfo_width() // 2)
+        y = self.winfo_y() + (self.winfo_height() // 2) - (dialog.winfo_height() // 2)
+        dialog.geometry(f"+{x}+{y}")
+        dialog.grab_set()
+
+    def start_update_download(self, info, dialog, progress, lbl_status, on_fail):
+        new_path = sys.executable + ".new"
+        prog = {"done": 0, "total": 0}
+
+        def work():
+            download_update(info, new_path, progress_cb=lambda d, t: prog.update(done=d, total=t))
+
+        def tick():
+            if not dialog.winfo_exists() or prog.get("finished"):
+                return
+            mb = prog["done"] / 1_048_576
+            if prog["total"]:
+                progress.set(min(prog["done"] / prog["total"], 1.0))
+                lbl_status.configure(text=f"Memuat turun... {mb:.1f} / {prog['total'] / 1_048_576:.1f} MB")
+            else:
+                lbl_status.configure(text=f"Memuat turun... {mb:.1f} MB")
+            self.after(200, tick)
+
+        def on_done(_result, error):
+            prog["finished"] = True
+            if error is None:
+                progress.set(1.0)
+                lbl_status.configure(text="Memasang kemas kini & memulakan semula aplikasi...")
+                dialog.update_idletasks()
+                try:
+                    self.auto_save_layout_config()
+                    install_update_and_restart(new_path)
+                except Exception as e:
+                    error = e
+                else:
+                    self.destroy()
+                    return
+
+            try:
+                if os.path.exists(new_path):
+                    os.remove(new_path)
+            except OSError:
+                pass
+            lbl_status.configure(text="")
+            progress.set(0)
+            on_fail()
+            hint = ""
+            if isinstance(error, PermissionError):
+                hint = ("\n\nFolder aplikasi tidak boleh ditulis. Cuba jalankan aplikasi sebagai Administrator, "
+                        "atau muat turun versi baharu secara manual.")
+            if messagebox.askyesno("Kemas Kini Gagal",
+                                   f"Kemas kini tidak berjaya:\n{error}{hint}\n\nBuka halaman muat turun di pelayar?",
+                                   parent=dialog):
+                webbrowser.open(info["page"])
+
+        tick()
+        self._run_in_background(work, on_done)
 
     def save_template_presets(self):
         try:
