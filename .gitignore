@@ -15,3 +15,8 @@ app_settings.json
 # Python
 __pycache__/
 *.pyc
+
+# Auto-update: versi dilangkau (khusus mesin pengguna) & fail sementara semasa kemas kini
+update_settings.json
+*.exe.new
+*.exe.old

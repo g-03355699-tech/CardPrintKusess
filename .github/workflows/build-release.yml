@@ -1,0 +1,57 @@
+name: Bina exe & lampir pada Release
+
+# Bila satu Release diterbitkan di GitHub, bina MyKusessCetak.exe di Windows
+# dan lampirkannya sebagai aset release. Auto-update dalam aplikasi akan
+# memuat turun aset ini. Boleh juga dijalankan manual (Actions -> Run workflow)
+# untuk menguji binaan tanpa membuat release.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || github.ref }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Pasang kebergantungan
+        run: pip install customtkinter pillow qrcode pywin32 pyinstaller
+
+      - name: Semak APP_VERSION sepadan dengan tag release
+        if: github.event_name == 'release'
+        shell: pwsh
+        run: |
+          $tag = "${{ github.event.release.tag_name }}"
+          $line = Select-String -Path MyKusessCetak.py -Pattern '^APP_VERSION\s*=\s*"([^"]+)"' | Select-Object -First 1
+          $ver = $line.Matches[0].Groups[1].Value
+          if ($ver -ne $tag) {
+            Write-Error "APP_VERSION ($ver) tidak sama dengan tag release ($tag). Kemas kini APP_VERSION dahulu."
+            exit 1
+          }
+
+      - name: Bina exe
+        run: pyinstaller --noconfirm MyKusessCetak.spec
+
+      - name: Lampir exe pada release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" dist/MyKusessCetak.exe --clobber
+
+      - name: Simpan exe sebagai artifact (run manual)
+        if: github.event_name != 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: MyKusessCetak-exe
+          path: dist/MyKusessCetak.exe
