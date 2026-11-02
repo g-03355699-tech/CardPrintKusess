@@ -3,6 +3,7 @@ import csv
 import json
 import sys
 import re
+import ssl
 import platform
 import random
 import string
@@ -28,7 +29,7 @@ import win32ui
 import win32con
 from PIL import ImageWin
 
-APP_VERSION = "v1.11"
+APP_VERSION = "v1.12"
 
 # --- AUTO-UPDATE (GitHub Releases) ---
 UPDATE_REPO = "g-03355699-tech/CardPrintKusess"
@@ -155,12 +156,72 @@ def is_frozen_exe():
     return getattr(sys, "frozen", False) and sys.executable.lower().endswith(".exe")
 
 
+# ============================================================
+#  HTTPS: pengesahan sijil seperti pelayar
+# ============================================================
+# Python biasa hanya membaca sijil akar yang SUDAH ada dalam stor Windows. Pada banyak
+# PC sekolah, sijil akar dimuat turun oleh Windows hanya apabila diperlukan, atau rangkaian
+# (MOE/sekolah) memeriksa HTTPS dengan sijilnya sendiri — kedua-duanya menghasilkan
+# "CERTIFICATE_VERIFY_FAILED". `truststore` mengesahkan melalui API sijil Windows sendiri
+# (sama seperti Chrome/Edge); sandaran: sijil Windows + bundle certifi.
+_ssl_contexts = None
+
+
+def _build_ssl_contexts():
+    contexts = []
+    try:
+        import truststore
+        contexts.append(truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT))
+    except Exception:
+        pass
+    try:
+        ctx = ssl.create_default_context()      # termasuk stor sijil Windows
+        try:
+            import certifi
+            ctx.load_verify_locations(certifi.where())
+        except Exception:
+            pass
+        contexts.append(ctx)
+    except Exception:
+        pass
+    return contexts or [None]
+
+
+def is_cert_error(err):
+    reason = getattr(err, "reason", err)
+    return isinstance(reason, ssl.SSLCertVerificationError) or "CERTIFICATE_VERIFY_FAILED" in str(err)
+
+
+def https_open(req, timeout):
+    """urlopen dengan pengesahan sijil gaya Windows; cuba konteks seterusnya jika sijil gagal disahkan."""
+    global _ssl_contexts
+    if _ssl_contexts is None:
+        _ssl_contexts = _build_ssl_contexts()
+    last_err = None
+    for ctx in _ssl_contexts:
+        try:
+            return urllib.request.urlopen(req, timeout=timeout, context=ctx)
+        except (urllib.error.URLError, ssl.SSLError) as e:
+            if isinstance(e, urllib.error.HTTPError) or not is_cert_error(e):
+                raise
+            last_err = e
+    raise last_err
+
+
+def friendly_network_error(err):
+    if is_cert_error(err):
+        return ("Sijil keselamatan (SSL) tidak dapat disahkan. Rangkaian ini mungkin memeriksa trafik HTTPS. "
+                "Cuba sambung ke rangkaian lain (cth. hotspot telefon), atau minta juruteknik memasang sijil "
+                "rangkaian sekolah ke dalam Windows.")
+    return str(getattr(err, "reason", err))
+
+
 def _http_get(url, timeout=15):
     req = urllib.request.Request(url, headers={
         "User-Agent": UPDATE_USER_AGENT,
         "Accept": "application/vnd.github+json",
     })
-    return urllib.request.urlopen(req, timeout=timeout)
+    return https_open(req, timeout)
 
 
 def fetch_latest_release():
@@ -288,12 +349,14 @@ def gsheet_call(url, key, action, timeout=90, **params):
     full_url = url.strip() + ("&" if "?" in url else "?") + urllib.parse.urlencode(query)
     req = urllib.request.Request(full_url, headers={"User-Agent": UPDATE_USER_AGENT})
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with https_open(req, timeout) as resp:
             raw = resp.read()
     except urllib.error.HTTPError as e:
         raise GSheetError(f"Pelayan Google membalas HTTP {e.code}. Semak URL Web App.") from e
-    except urllib.error.URLError as e:
-        raise GSheetError(f"Tidak dapat menghubungi Google ({e.reason}). Semak sambungan internet.") from e
+    except (urllib.error.URLError, ssl.SSLError) as e:
+        if is_cert_error(e):
+            raise GSheetError(friendly_network_error(e)) from e
+        raise GSheetError(f"Tidak dapat menghubungi Google ({getattr(e, 'reason', e)}). Semak sambungan internet.") from e
     try:
         data = json.loads(raw.decode("utf-8"))
     except Exception:
@@ -1436,9 +1499,11 @@ class CardPrinterApp(ctk.CTk):
             if error is not None:
                 # Semakan automatik gagal (cth. tiada internet) -> senyap sahaja
                 if manual:
-                    messagebox.showwarning(
-                        "Semak Kemas Kini",
-                        f"Tidak dapat menyemak kemas kini.\nPastikan komputer disambung ke internet.\n\n({error})")
+                    if is_cert_error(error):
+                        detail = friendly_network_error(error)
+                    else:
+                        detail = f"Pastikan komputer disambung ke internet.\n\n({error})"
+                    messagebox.showwarning("Semak Kemas Kini", f"Tidak dapat menyemak kemas kini.\n{detail}")
                 return
 
             latest = parse_version(info["tag"])

@@ -1,8 +1,14 @@
-# MyKUSESS Studio Card Print v1.11
+# MyKUSESS Studio Card Print v1.12
 
 Aplikasi desktop (Windows, Python + CustomTkinter) untuk menjana dan mencetak kad pengenalan (ID card) guru/murid MyKUSESS, lengkap dengan gambar, kod QR unik, dan maklumat individu. Menyokong cetakan satu-satu atau pukal (batch) daripada fail CSV.
 
 ![Pratonton MyKUSESS Studio Card Print](screenshots/mykusess-studio-preview.png)
+
+## v1.12 — Nota Keluaran
+
+- **Pembetulan ralat "CERTIFICATE_VERIFY_FAILED"** semasa Semak Kemas Kini dan Muat dari Google Sheet pada sesetengah PC. Aplikasi kini mengesahkan sijil HTTPS melalui stor sijil Windows sendiri (sama seperti Chrome/Edge), jadi ia berfungsi pada PC yang sijil akarnya belum dimuat turun oleh Windows dan pada rangkaian sekolah yang memeriksa trafik HTTPS (jika sijil rangkaian dipasang dalam Windows). Sijil sandaran (certifi) turut disertakan.
+- Mesej ralat sijil kini menerangkan punca & langkah penyelesaian dalam Bahasa Melayu.
+- ⚠️ PC yang mengalami ralat ini pada v1.11 tidak dapat mengemas kini secara automatik — muat turun v1.12 secara manual sekali dari halaman Releases.
 
 ## v1.11 — Nota Keluaran
 
