@@ -29,7 +29,7 @@ import win32ui
 import win32con
 from PIL import ImageWin
 
-APP_VERSION = "v1.12"
+APP_VERSION = "v1.13"
 
 # --- AUTO-UPDATE (GitHub Releases) ---
 UPDATE_REPO = "g-03355699-tech/CardPrintKusess"
