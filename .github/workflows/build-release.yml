@@ -72,7 +72,11 @@ jobs:
 
       - name: Pasang kebergantungan
         if: steps.ver.outputs.action != 'skip'
-        run: pip install customtkinter pillow qrcode pywin32 pyinstaller
+        run: pip install customtkinter pillow qrcode pywin32 pyinstaller truststore certifi
+
+      - name: Semak HTTPS melalui stor sijil Windows (truststore)
+        if: steps.ver.outputs.action != 'skip'
+        run: python -c "import ssl, truststore, urllib.request; urllib.request.urlopen('https://api.github.com/', context=truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT), timeout=30); print('truststore OK')"
 
       - name: Bina exe
         if: steps.ver.outputs.action != 'skip'
